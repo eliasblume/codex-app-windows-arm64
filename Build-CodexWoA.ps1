@@ -1905,7 +1905,7 @@ function Test-MsixPackage {
     $fallbackX64 = New-Object "System.Collections.Generic.HashSet[string]" ([StringComparer]::OrdinalIgnoreCase)
     foreach ($path in @(
         "app\resources\node_repl.exe",
-        "app\resources\plugins\openai-bundled\plugins\latex-tectonic\bin\tectonic.exe",
+        "app\resources\plugins\openai-bundled\plugins\latex\bin\tectonic.exe",
         "app\resources\plugins\openai-bundled\plugins\chrome\extension-host\windows\x64\extension-host.exe",
         "app\resources\codex.exe",
         "app\resources\codex-command-runner.exe",
