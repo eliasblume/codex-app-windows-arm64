@@ -111,3 +111,5 @@ Add-GitHubOutput "msix_sha1" $storePackage.Sha1
     msixSha1 = $storePackage.Sha1
     latestReleaseTag = $latestTag
 } | ConvertTo-Json -Depth 4
+
+exit 0
