@@ -30,7 +30,7 @@ OpenAI, Codex, and ChatGPT are trademarks of OpenAI. All other trademarks are th
 With Scoop:
 
 ```powershell
-scoop bucket add codex-woa https://github.com/eliasblume/codex-app-windows-arm64
+scoop bucket add codex-woa https://github.com/airtaxi/codex-app-windows-arm64
 scoop install codex-woa
 ```
 
@@ -41,7 +41,7 @@ scoop update
 scoop update codex-woa
 ```
 
-Download the release zip from the [GitHub Releases](https://github.com/eliasblume/codex-app-windows-arm64/releases) page, extract it, and run:
+Download the release zip from the [GitHub Releases](https://github.com/airtaxi/codex-app-windows-arm64/releases) page, extract it, and run:
 
 ```bat
 Install.bat
