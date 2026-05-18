@@ -1563,9 +1563,12 @@ allowBuilds:
             Pop-Location
         }
 
-        Invoke-Checked "pnpm" @(
-            "exec",
-            "electron-rebuild",
+        $electronRebuild = Join-Path $buildDir "node_modules\.bin\electron-rebuild.cmd"
+        if (-not (Test-Path -LiteralPath $electronRebuild)) {
+            throw "electron-rebuild command was not found: $electronRebuild"
+        }
+
+        Invoke-Checked $electronRebuild @(
             "-v", $ElectronVersion,
             "--arch", "arm64",
             "--force",
