@@ -1748,6 +1748,12 @@ if ([string]::IsNullOrWhiteSpace($MsixPath)) {
 
 if ([string]::IsNullOrWhiteSpace($CerPath)) {
     $CerPath = Join-Path $script:ScriptRoot "__CER_RELATIVE_PATH__"
+    if (-not (Test-Path -LiteralPath $CerPath)) {
+        $flatCerPath = Join-Path $script:ScriptRoot "CodexWoA.cer"
+        if (Test-Path -LiteralPath $flatCerPath) {
+            $CerPath = $flatCerPath
+        }
+    }
 }
 
 function Assert-MsixSignerMatchesCertificate {

@@ -121,7 +121,14 @@ jobs:
               }
             }
             installer = [ordered]@{
-              script = 'pwsh -NoProfile -ExecutionPolicy Bypass -File "$dir\Install.ps1"'
+              script = @(
+                '$msix = Get-ChildItem -LiteralPath $dir -Filter "Codex-WoA_*_arm64.msix" | Select-Object -First 1'
+                '$cer = Join-Path $dir "CodexWoA.cer"'
+                'if (-not $msix) { throw "Codex WoA MSIX not found." }'
+                'if (-not (Test-Path -LiteralPath $cer)) { $cer = Join-Path $dir "cert\CodexWoA.cer" }'
+                '& (Join-Path $dir "Install.ps1") -MsixPath $msix.FullName -CerPath $cer'
+                'if ($LASTEXITCODE) { exit $LASTEXITCODE }'
+              )
             }
             uninstaller = [ordered]@{
               script = 'Get-AppxPackage -Name "OpenAI.Codex.WoA" | Remove-AppxPackage'
