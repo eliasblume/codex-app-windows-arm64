@@ -6,7 +6,7 @@
   "architecture": {
     "arm64": {
       "url": "https://github.com/airtaxi/codex-app-windows-arm64/releases/download/26.513.4821/dist.7z",
-      "hash": "80a3e1295a1445246165c2eb7da4c70cda0adb7accd9a0c4fa88e05ec82c03d2"
+      "hash": "46c9a3b522d4b42421de16e9b4e5cba697d7bf290a600991d61043f8f0028547"
     }
   },
   "installer": {
