@@ -17,15 +17,29 @@ OpenAI, Codex 및 ChatGPT는 OpenAI의 상표입니다. 그 외 모든 상표는
 ## 요구사항
 
 - Windows on ARM 장치.
-- Microsoft Store에서 설치한 공식 Codex x64 앱.
+- Microsoft Store에서 설치한 공식 Codex x64 앱 또는 Microsoft Store CDN에서 다운로드한 공식 x64 Codex MSIX.
 - PowerShell 7(`pwsh`) 권장. Windows PowerShell은 fallback으로만 사용됩니다.
-- `PATH`에서 사용할 수 있는 Node.js, `node`, `npm`, `npx`.
+- `PATH`에서 사용할 수 있는 Node.js, `node`, `pnpm`.
 - `makeappx.exe`, `signtool.exe`를 포함한 Windows SDK 도구.
 - upstream Linux ARM64 runtime asset 압축 해제를 위해 `PATH`에서 사용할 수 있는 `tar.exe`.
 - ARM64 C++ toolchain이 포함된 Visual Studio C++ desktop build tools.
 - Electron, Node.js, Codex helper 바이너리, ripgrep, 네이티브 모듈 빌드 의존성 다운로드를 위한 인터넷 연결.
 
 ## Release에서 빠르게 설치
+
+Scoop 사용:
+
+```powershell
+scoop bucket add codex-woa https://github.com/airtaxi/codex-app-windows-arm64
+scoop install codex-woa
+```
+
+일반적인 업데이트:
+
+```powershell
+scoop update
+scoop update codex-woa
+```
 
 [GitHub Releases](https://github.com/airtaxi/codex-app-windows-arm64/releases) 페이지에서 release zip을 다운로드하고 압축을 푼 뒤 다음 파일을 실행합니다.
 
@@ -46,6 +60,8 @@ Build-CodexWoA.bat -SourceMode Installed -Force
 `-SourceMode Installed`는 Microsoft Store에서 이미 설치된 공식 Codex x64 패키지를 사용합니다.
 
 `-SourceMode StoreLatest`는 MSIX를 직접 다운로드하지 않습니다. Microsoft Store를 열어 Codex를 공식 경로로 설치하거나 업데이트하게 한 뒤, 설치된 x64 패키지를 사용해 계속 진행합니다.
+
+`-SourceMode Msix -SourceMsixPath <path>`는 공식 x64 Codex MSIX를 직접 추출해 소스 패키지로 사용합니다.
 
 기본 출력 디렉터리는 `dist`입니다.
 
