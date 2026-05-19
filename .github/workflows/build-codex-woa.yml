@@ -92,6 +92,12 @@ jobs:
         with:
           node-version: latest
 
+      - id: python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          architecture: x64
+
       - name: Enable pnpm
         shell: pwsh
         run: |
@@ -129,6 +135,8 @@ jobs:
         shell: pwsh
         env:
           SOURCE_MSIX: ${{ steps.download.outputs.source_msix }}
+          PYTHON: ${{ steps.python.outputs.python-path }}
+          npm_config_python: ${{ steps.python.outputs.python-path }}
         run: |
           .\Build-CodexWoA.ps1 `
             -SourceMode Msix `
