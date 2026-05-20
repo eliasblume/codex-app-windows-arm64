@@ -1501,7 +1501,8 @@ function Enable-ChromeExtensionHostX64Fallback {
         return
     }
 
-    $arm64Host = Join-Path $chromePluginDir "extension-host\windows\arm64\extension-host.exe"
+    $arm64HostDir = Join-Path $chromePluginDir "extension-host\windows\arm64"
+    $arm64Host = Join-Path $arm64HostDir "extension-host.exe"
     if (Test-Path -LiteralPath $arm64Host) {
         return
     }
@@ -1511,24 +1512,11 @@ function Enable-ChromeExtensionHostX64Fallback {
         return
     }
 
-    $installManifest = Join-Path $chromePluginDir "scripts\installManifest.mjs"
-    if (-not (Test-Path -LiteralPath $installManifest)) {
-        throw "Chrome extension host x64 fallback is required, but installManifest.mjs was not found."
-    }
+    New-Item -ItemType Directory -Path $arm64HostDir -Force | Out-Null
+    Copy-Item -LiteralPath $x64Host -Destination $arm64Host -Force
 
-    $before = 'return u.resolve(o,`extension-host/${e}/${t}/${r}`)'
-    $after = 'let s=u.resolve(o,`extension-host/${e}/${t}/${r}`);return e==="windows"&&t==="arm64"&&!w(s)?u.resolve(o,`extension-host/${e}/x64/${r}`):s'
-    $content = Get-Content -LiteralPath $installManifest -Raw
-    if ($content.Contains($after)) {
-        return
-    }
-
-    if (-not $content.Contains($before)) {
-        throw "Could not patch Chrome extension host path resolver for WoA x64 fallback."
-    }
-
-    Set-TextUtf8NoBom $installManifest ($content.Replace($before, $after))
-    Add-Replacement "chrome-extension-host" "x64-fallback" "windows arm64 uses bundled x64 native messaging host"
+    Write-Warn "Chrome extension native messaging host is not native ARM64; copied the bundled x64 host into the ARM64 path for Windows on ARM x64 emulation."
+    Add-Replacement "chrome-extension-host" "x64-emulated-arm64-path" "copied bundled x64 extension-host.exe to extension-host\windows\arm64; no installManifest.mjs patch"
 }
 
 function Prune-PluginClassicLevelNonArm64WindowsPrebuilds {
@@ -2067,7 +2055,8 @@ function Test-MsixPackage {
     foreach ($path in @(
         "app\resources\node_repl.exe",
         "app\resources\plugins\openai-bundled\plugins\latex\bin\tectonic.exe",
-        "app\resources\plugins\openai-bundled\plugins\chrome\extension-host\windows\x64\extension-host.exe"
+        "app\resources\plugins\openai-bundled\plugins\chrome\extension-host\windows\x64\extension-host.exe",
+        "app\resources\plugins\openai-bundled\plugins\chrome\extension-host\windows\arm64\extension-host.exe"
     )) {
         $fallbackX64.Add($path) | Out-Null
     }
