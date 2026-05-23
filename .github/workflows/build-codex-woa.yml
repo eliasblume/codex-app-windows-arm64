@@ -172,9 +172,6 @@ jobs:
                 'if ($LASTEXITCODE) { exit $LASTEXITCODE }'
               )
             }
-            uninstaller = [ordered]@{
-              script = 'Get-AppxPackage -Name "OpenAI.Codex.WoA" | Remove-AppxPackage'
-            }
             notes = "Install.ps1 imports the included local signing certificate into TrustedPeople and may request elevation."
           }
 
