@@ -1776,6 +1776,33 @@ function Prune-PluginClassicLevelNonArm64WindowsPrebuilds {
     }
 }
 
+function Enable-ComputerUseX64Fallback {
+    param([string]$ResourcesDir)
+
+    $computerUseHelperCandidates = @(
+        (Join-Path $ResourcesDir "plugins\openai-bundled\plugins\computer-use\node_modules\%40oai\sky\bin\windows\codex-computer-use.exe"),
+        (Join-Path $ResourcesDir "plugins\openai-bundled\plugins\computer-use\node_modules\@oai\sky\bin\windows\codex-computer-use.exe")
+    )
+
+    foreach ($helperPath in $computerUseHelperCandidates) {
+        if (-not (Test-Path -LiteralPath $helperPath)) {
+            continue
+        }
+
+        $machine = Get-PeMachine $helperPath
+        if ($machine -eq "arm64") {
+            Add-Replacement "computer-use-helper" "arm64" (Get-RelativePath $ResourcesDir $helperPath)
+            return
+        }
+
+        if ($machine -eq "x64") {
+            Write-Warn "Computer Use helper is not native ARM64; keeping the bundled x64 helper for Windows on ARM x64 emulation."
+            Add-Replacement "computer-use-helper" "x64-emulated" (Get-RelativePath $ResourcesDir $helperPath)
+            return
+        }
+    }
+}
+
 function Invoke-WithTemporaryEnv {
     param(
         [hashtable]$Environment,
@@ -1796,6 +1823,166 @@ function Invoke-WithTemporaryEnv {
             [Environment]::SetEnvironmentVariable($key, $old[$key], "Process")
         }
     }
+}
+
+function Add-MsvcFrameAddressShim {
+    param([string]$Path)
+
+    $content = Get-Content -LiteralPath $Path -Raw
+    if ($content.Contains("__builtin_frame_address(level)")) {
+        return $false
+    }
+
+    $shim = @"
+#if defined(_MSC_VER) && !defined(__clang__) && !defined(__builtin_frame_address)
+#include <intrin.h>
+#define __builtin_frame_address(level) _AddressOfReturnAddress()
+#endif
+
+"@
+
+    Set-TextUtf8NoBom $Path ($shim + $content)
+    return $true
+}
+
+function Get-NpmPackageVersionFromDirectory {
+    param([string]$PackageDir)
+
+    $packageJson = Join-Path $PackageDir "package.json"
+    if (-not (Test-Path -LiteralPath $packageJson)) {
+        throw "Package metadata was not found: $packageJson"
+    }
+
+    $package = Get-Content -LiteralPath $packageJson -Raw | ConvertFrom-Json
+    return [string]$package.version
+}
+
+function Invoke-NodeGypArm64ElectronRebuild {
+    param(
+        [string]$PackageDir,
+        [string]$ElectronVersion
+    )
+
+    Push-Location $PackageDir
+    try {
+        Invoke-Checked "pnpm" @(
+            "dlx",
+            "node-gyp",
+            "rebuild",
+            "--arch=arm64",
+            "--target=$ElectronVersion",
+            "--dist-url=https://electronjs.org/headers"
+        )
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Get-WlDeviceKitNodeModulesDirs {
+    param([string]$AsarDir)
+
+    $candidates = @(
+        (Join-Path $AsarDir "node_modules\@worklouder\device-kit-oai\node_modules\@worklouder\wl-device-kit\node_modules"),
+        (Join-Path $AsarDir "node_modules\%40worklouder\device-kit-oai\node_modules\%40worklouder\wl-device-kit\node_modules")
+    )
+
+    return @($candidates | Where-Object { Test-Path -LiteralPath $_ })
+}
+
+function Get-RequiredWlDeviceKitNodeModulesDir {
+    param([string]$AsarDir)
+
+    foreach ($nodeModulesDir in Get-WlDeviceKitNodeModulesDirs $AsarDir) {
+        if ((Test-Path -LiteralPath (Join-Path $nodeModulesDir "node-hid\package.json")) -and
+            (Test-Path -LiteralPath (Join-Path $nodeModulesDir "serialport\node_modules\@serialport\bindings-cpp\package.json"))) {
+            return $nodeModulesDir
+        }
+    }
+
+    throw "Could not find Work Louder device kit native module sources."
+}
+
+function Sync-WlDeviceKitNativeModuleBuilds {
+    param(
+        [string]$AsarDir,
+        [string]$BuiltHidNode,
+        [string]$BuiltSerialPortNode
+    )
+
+    if ((Get-PeMachine $BuiltHidNode) -ne "arm64") {
+        throw "node-hid build did not produce an ARM64 binary: $BuiltHidNode"
+    }
+    if ((Get-PeMachine $BuiltSerialPortNode) -ne "arm64") {
+        throw "serialport build did not produce an ARM64 binary: $BuiltSerialPortNode"
+    }
+
+    $hidBytes = [System.IO.File]::ReadAllBytes($BuiltHidNode)
+    $serialPortBytes = [System.IO.File]::ReadAllBytes($BuiltSerialPortNode)
+
+    foreach ($nodeModulesDir in Get-WlDeviceKitNodeModulesDirs $AsarDir) {
+        $hidReleaseDir = Join-Path $nodeModulesDir "node-hid\build\Release"
+        New-Item -ItemType Directory -Path $hidReleaseDir -Force | Out-Null
+        Get-ChildItem -LiteralPath $hidReleaseDir -Filter "*.node" -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force
+        [System.IO.File]::WriteAllBytes((Join-Path $hidReleaseDir "HID.node"), $hidBytes)
+
+        $serialPortReleaseDirs = @(
+            (Join-Path $nodeModulesDir "serialport\node_modules\@serialport\bindings-cpp\build\Release"),
+            (Join-Path $nodeModulesDir "serialport\node_modules\%40serialport\bindings-cpp\build\Release")
+        )
+        foreach ($serialPortReleaseDir in $serialPortReleaseDirs) {
+            if (-not (Test-Path -LiteralPath (Split-Path -Parent $serialPortReleaseDir))) {
+                continue
+            }
+
+            New-Item -ItemType Directory -Path $serialPortReleaseDir -Force | Out-Null
+            Get-ChildItem -LiteralPath $serialPortReleaseDir -Filter "*.node" -File -ErrorAction SilentlyContinue |
+                Remove-Item -Force
+            [System.IO.File]::WriteAllBytes((Join-Path $serialPortReleaseDir "bindings.node"), $serialPortBytes)
+        }
+    }
+}
+
+function Install-Arm64WlDeviceKitNativeModules {
+    param(
+        [string]$AsarDir,
+        [string]$ElectronVersion
+    )
+
+    $nodeModulesDir = Get-RequiredWlDeviceKitNodeModulesDir $AsarDir
+    $nodeHidDir = Join-Path $nodeModulesDir "node-hid"
+    $serialPortBindingsDir = Join-Path $nodeModulesDir "serialport\node_modules\@serialport\bindings-cpp"
+
+    $nodeHidVersion = Get-NpmPackageVersionFromDirectory $nodeHidDir
+    $serialPortBindingsVersion = Get-NpmPackageVersionFromDirectory $serialPortBindingsDir
+    $script:Report.versions.nodeHid = $nodeHidVersion
+    $script:Report.versions.serialPortBindingsCpp = $serialPortBindingsVersion
+
+    $nodeHidUtilHeader = Join-Path $nodeHidDir "src\util.h"
+    $serialPortHeader = Join-Path $serialPortBindingsDir "src\serialport.h"
+    if (Add-MsvcFrameAddressShim $nodeHidUtilHeader) {
+        Add-Replacement "node-hid-source" "patched" "Electron 42 MSVC __builtin_frame_address compatibility"
+    }
+    if (Add-MsvcFrameAddressShim $serialPortHeader) {
+        Add-Replacement "serialport-bindings-cpp-source" "patched" "Electron 42 MSVC __builtin_frame_address compatibility"
+    }
+
+    Invoke-NodeGypArm64ElectronRebuild $nodeHidDir $ElectronVersion
+    Invoke-NodeGypArm64ElectronRebuild $serialPortBindingsDir $ElectronVersion
+
+    $builtHidNode = Join-Path $nodeHidDir "build\Release\HID.node"
+    $builtSerialPortNode = Join-Path $serialPortBindingsDir "build\Release\bindings.node"
+    if (-not (Test-Path -LiteralPath $builtHidNode)) {
+        throw "node-hid ARM64 build output was not found: $builtHidNode"
+    }
+    if (-not (Test-Path -LiteralPath $builtSerialPortNode)) {
+        throw "serialport ARM64 build output was not found: $builtSerialPortNode"
+    }
+
+    Sync-WlDeviceKitNativeModuleBuilds $AsarDir $builtHidNode $builtSerialPortNode
+    Add-Replacement "node-hid" "arm64" "rebuilt for Electron $ElectronVersion"
+    Add-Replacement "serialport-bindings-cpp" "arm64" "rebuilt for Electron $ElectronVersion"
 }
 
 function Build-Arm64NativeModules {
@@ -1894,6 +2081,8 @@ allowBuilds:
         Copy-DirectoryRobust $source $destination
         Add-Replacement $moduleName "arm64" "rebuilt for Electron $ElectronVersion"
     }
+
+    Install-Arm64WlDeviceKitNativeModules $AsarDir $ElectronVersion
 }
 
 function Remove-WindowsUpdaterNative {
@@ -2283,7 +2472,9 @@ function Test-MsixPackage {
         "app\resources\node_repl.exe",
         "app\resources\plugins\openai-bundled\plugins\latex\bin\tectonic.exe",
         "app\resources\plugins\openai-bundled\plugins\chrome\extension-host\windows\x64\extension-host.exe",
-        "app\resources\plugins\openai-bundled\plugins\chrome\extension-host\windows\arm64\extension-host.exe"
+        "app\resources\plugins\openai-bundled\plugins\chrome\extension-host\windows\arm64\extension-host.exe",
+        "app\resources\plugins\openai-bundled\plugins\computer-use\node_modules\%40oai\sky\bin\windows\codex-computer-use.exe",
+        "app\resources\plugins\openai-bundled\plugins\computer-use\node_modules\@oai\sky\bin\windows\codex-computer-use.exe"
     )) {
         $fallbackX64.Add($path) | Out-Null
     }
@@ -2478,6 +2669,7 @@ function Main {
     Remove-WindowsUpdaterNative $resourcesDir
     Enable-ChromeExtensionHostX64Fallback $resourcesDir
     Prune-PluginClassicLevelNonArm64WindowsPrebuilds $resourcesDir
+    Enable-ComputerUseX64Fallback $resourcesDir
 
     Build-Arm64NativeModules $asarExtractDir $electronVersion $workDir
 
