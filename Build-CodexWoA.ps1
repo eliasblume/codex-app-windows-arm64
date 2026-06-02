@@ -1099,6 +1099,85 @@ function Install-Arm64CodexHelpers {
     }
 }
 
+function Assert-WindowsSandboxSetupAsInvokerManifest {
+    param(
+        [string]$SetupExePath,
+        [string]$MtPath,
+        [string]$ExtractedManifestPath
+    )
+
+    Remove-IfExists $ExtractedManifestPath
+    try {
+        Invoke-Checked $MtPath @(
+            "-inputresource:$SetupExePath;#1",
+            "-out:$ExtractedManifestPath"
+        )
+
+        $manifestText = Get-Content -LiteralPath $ExtractedManifestPath -Raw
+        if (
+            $manifestText -notmatch "requestedExecutionLevel" -or
+            $manifestText -notmatch 'level\s*=\s*["'']asInvoker["'']'
+        ) {
+            throw "Sandbox setup helper does not contain an asInvoker requestedExecutionLevel manifest: $SetupExePath"
+        }
+    }
+    finally {
+        Remove-IfExists $ExtractedManifestPath
+    }
+}
+
+function Patch-WindowsSandboxSetupAsInvokerManifest {
+    param(
+        [string]$ResourcesDir,
+        [string]$SignToolPath,
+        [string]$MtPath,
+        [string]$WorkDir
+    )
+
+    $setupExePath = Join-Path $ResourcesDir "codex-windows-sandbox-setup.exe"
+    if (-not (Test-Path -LiteralPath $setupExePath)) {
+        throw "Windows sandbox setup helper was not found: $setupExePath"
+    }
+
+    Write-Step "Embedding asInvoker manifest in Windows sandbox setup helper"
+    $signature = Get-AuthenticodeSignature -LiteralPath $setupExePath
+    if ($null -ne $signature.SignerCertificate) {
+        Invoke-Checked $SignToolPath @("remove", "/s", $setupExePath)
+    }
+
+    $manifestPath = Join-Path $WorkDir "codex-windows-sandbox-setup.asInvoker.manifest"
+    $manifest = @'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity
+    version="1.0.0.0"
+    processorArchitecture="*"
+    name="OpenAI.Codex.WindowsSandboxSetup"
+    type="win32"
+  />
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>
+'@
+    Set-TextUtf8NoBom $manifestPath $manifest
+
+    Invoke-Checked $MtPath @(
+        "-manifest", $manifestPath,
+        "-outputresource:$setupExePath;#1"
+    )
+
+    Assert-WindowsSandboxSetupAsInvokerManifest `
+        $setupExePath `
+        $MtPath `
+        (Join-Path $WorkDir "codex-windows-sandbox-setup.embedded.manifest")
+    Add-Replacement "codex-windows-sandbox-setup.exe-manifest" "patched" "embedded requestedExecutionLevel=asInvoker"
+}
+
 function Get-ExtractedSingleFile {
     param(
         [string]$Root,
@@ -2333,7 +2412,8 @@ function New-InstallScript {
 [CmdletBinding()]
 param(
     [string]$MsixPath = "",
-    [string]$CerPath = ""
+    [string]$CerPath = "",
+    [switch]$TrustCertificateOnly
 )
 
 Set-StrictMode -Version Latest
@@ -2408,22 +2488,21 @@ function Get-CurrentPowerShellExecutable {
     return "powershell.exe"
 }
 
-function Invoke-ElevatedSelf {
-    param(
-        [string]$ResolvedMsixPath,
-        [string]$ResolvedCerPath
-    )
+function Invoke-ElevatedCertificateTrust {
+    param([string]$ResolvedCerPath)
 
     Write-Host "LocalMachine certificate trust requires administrator rights. Requesting elevation..."
     $arguments = @(
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", "`"$PSCommandPath`"",
-        "-MsixPath", "`"$ResolvedMsixPath`"",
+        "-TrustCertificateOnly",
         "-CerPath", "`"$ResolvedCerPath`""
     )
     $process = Start-Process -FilePath (Get-CurrentPowerShellExecutable) -ArgumentList $arguments -Verb RunAs -Wait -PassThru
-    exit $process.ExitCode
+    if ($process.ExitCode -ne 0) {
+        throw "Elevated certificate trust failed with exit code $($process.ExitCode)."
+    }
 }
 
 function Test-CertificateInStore {
@@ -2467,7 +2546,8 @@ function Clear-CodexBundledPluginCache {
 
     $cacheDirs = @(
         (Join-Path $cacheRoot "browser"),
-        (Join-Path $cacheRoot "chrome")
+        (Join-Path $cacheRoot "chrome"),
+        (Join-Path $cacheRoot "computer-use")
     )
 
     foreach ($cacheDir in $cacheDirs) {
@@ -2485,27 +2565,34 @@ function Clear-CodexBundledPluginCache {
     }
 }
 
-$MsixPath = [System.IO.Path]::GetFullPath($MsixPath)
+$machineStorePath = "Cert:\LocalMachine\TrustedPeople"
+$machineStoreLabel = "LocalMachine\TrustedPeople"
+
 $CerPath = [System.IO.Path]::GetFullPath($CerPath)
-
-if (-not (Test-Path -LiteralPath $MsixPath)) {
-    throw "MSIX not found: $MsixPath"
-}
-
 if (-not (Test-Path -LiteralPath $CerPath)) {
     throw "Certificate not found: $CerPath"
 }
-
 $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CerPath)
+
+if ($TrustCertificateOnly) {
+    if (-not (Test-IsAdministrator)) {
+        throw "Trusting a LocalMachine certificate requires administrator rights."
+    }
+    Ensure-CertificateInStore $CerPath $cert $machineStorePath $machineStoreLabel
+    exit 0
+}
+
+$MsixPath = [System.IO.Path]::GetFullPath($MsixPath)
+if (-not (Test-Path -LiteralPath $MsixPath)) {
+    throw "MSIX not found: $MsixPath"
+}
 
 Write-Host "Checking MSIX signer..."
 $signature = Assert-MsixSignerMatchesCertificate $MsixPath $cert
 
 Write-Host "Checking certificate trust..."
-$machineStorePath = "Cert:\LocalMachine\TrustedPeople"
-$machineStoreLabel = "LocalMachine\TrustedPeople"
 if ((-not (Test-CertificateInStore $cert $machineStorePath)) -and (-not (Test-IsAdministrator))) {
-    Invoke-ElevatedSelf $MsixPath $CerPath
+    Invoke-ElevatedCertificateTrust $CerPath
 }
 
 Ensure-CertificateInStore $CerPath $cert $machineStorePath $machineStoreLabel
@@ -2517,8 +2604,9 @@ if ($signatureAfterTrust.Status -ne "Valid") {
 
 Write-Host "Installing $MsixPath..."
 Add-AppxPackage -Path $MsixPath
+[Environment]::SetEnvironmentVariable("CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE", "1", "User")
 Clear-CodexBundledPluginCache
-Write-Host "Done."
+Write-Host "Done. Restart Codex to enable Computer Use."
 '@
 
     $content = $content.
@@ -2583,6 +2671,7 @@ function Test-MsixPackage {
         [string]$VerifyDir,
         [string]$MakeAppxPath,
         [string]$SignToolPath,
+        [string]$MtPath,
         [string]$ExpectedIdentity,
         [string]$ExpectedSignerThumbprint
     )
@@ -2612,6 +2701,11 @@ function Test-MsixPackage {
     if ($null -eq $protocol -or $protocol.Name -ne "codex") {
         throw "Manifest codex protocol was not preserved"
     }
+
+    Assert-WindowsSandboxSetupAsInvokerManifest `
+        (Join-Path $VerifyDir "app\resources\codex-windows-sandbox-setup.exe") `
+        $MtPath `
+        (Join-Path $VerifyDir "codex-windows-sandbox-setup.embedded.manifest")
 
     $fallbackX64 = New-Object "System.Collections.Generic.HashSet[string]" ([StringComparer]::OrdinalIgnoreCase)
     foreach ($path in @(
@@ -2749,6 +2843,7 @@ function Test-MsixPackage {
         manifestArchitecture = $identity.ProcessorArchitecture
         executable = $application.Executable
         protocol = $protocol.Name
+        sandboxSetupManifest = "asInvoker"
         x64Fallbacks = @($fallbacks)
         wslElfPayloads = @($wslElfPayloads)
         signerThumbprint = $authenticode.SignerCertificate.Thumbprint
@@ -2771,9 +2866,11 @@ function Main {
 
     $makeAppx = Find-WindowsKitTool "makeappx.exe"
     $signTool = Find-WindowsKitTool "signtool.exe"
+    $mt = Find-WindowsKitTool "mt.exe"
     $script:Report.tools = [ordered]@{
         makeAppx = $makeAppx
         signTool = $signTool
+        mt = $mt
     }
 
     Ensure-VisualStudioArm64Tools
@@ -2813,6 +2910,7 @@ function Main {
     Install-Arm64ElectronRuntime $appDir $electronVersion $cacheDir
     Install-Arm64Node $resourcesDir $nodeVersion $cacheDir
     Install-Arm64CodexHelpers $resourcesDir $cacheDir $CodexReleaseTag
+    Patch-WindowsSandboxSetupAsInvokerManifest $resourcesDir $signTool $mt $workDir
     Install-Arm64WslCodexRuntime $stageRoot $resourcesDir $asarExtractDir $cacheDir $CodexReleaseTag
     Install-Arm64Ripgrep $resourcesDir $cacheDir
     Remove-WindowsUpdaterNative $resourcesDir
@@ -2846,7 +2944,7 @@ function Main {
     }
 
     Pack-And-SignMsix $stageRoot $msixPath $makeAppx $signTool $certificate
-    Test-MsixPackage $msixPath (Join-Path $workDir "verify") $makeAppx $signTool $PackageIdentity $certificate.Thumbprint
+    Test-MsixPackage $msixPath (Join-Path $workDir "verify") $makeAppx $signTool $mt $PackageIdentity $certificate.Thumbprint
 
     $installScriptPath = Join-Path $resolvedOutputDir "Install.ps1"
     New-InstallScript $installScriptPath $msixFileName "cert\CodexWoA.cer"

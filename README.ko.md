@@ -20,7 +20,7 @@ OpenAI, Codex 및 ChatGPT는 OpenAI의 상표입니다. 그 외 모든 상표는
 - Microsoft Store에서 설치한 공식 Codex x64 앱 또는 Microsoft Store CDN에서 다운로드한 공식 x64 Codex MSIX.
 - PowerShell 7(`pwsh`) 권장. Windows PowerShell은 fallback으로만 사용됩니다.
 - `PATH`에서 사용할 수 있는 Node.js, `node`, `pnpm`.
-- `makeappx.exe`, `signtool.exe`를 포함한 Windows SDK 도구.
+- `makeappx.exe`, `signtool.exe`, `mt.exe`를 포함한 Windows SDK 도구.
 - upstream Linux ARM64 runtime asset 압축 해제를 위해 `PATH`에서 사용할 수 있는 `tar.exe`.
 - ARM64 C++ toolchain이 포함된 Visual Studio C++ desktop build tools.
 - Electron, Node.js, Codex helper 바이너리, ripgrep, 네이티브 모듈 빌드 의존성 다운로드를 위한 인터넷 연결.
@@ -47,7 +47,13 @@ scoop update codex-woa
 Install.bat
 ```
 
-`Install.bat`은 `Install.ps1`을 실행합니다. 설치 스크립트는 MSIX 서명자가 포함된 인증서와 일치하는지 확인하고, 필요하면 로컬 인증서를 신뢰 저장소에 등록한 뒤 생성된 MSIX 패키지를 설치합니다.
+설치하기 전에 Codex를 완전히 종료하세요. `Install.bat`은 `Install.ps1`을 실행합니다. 설치 스크립트는 MSIX 서명자가 포함된 인증서와 일치하는지 확인하고, 필요하면 로컬 인증서를 신뢰 저장소에 등록하고, 생성된 MSIX 패키지를 설치한 뒤 현재 사용자의 Windows Computer Use 기능 플래그를 활성화합니다.
+
+재패키징 앱을 제거하려면 Windows 설정에서 Codex WoA를 제거하세요. 설치 프로그램은 로컬 인증서 신뢰 및 Computer Use 기능 플래그를 의도적으로 유지합니다. 기능 플래그를 수동으로 비활성화하려면 다음 명령을 실행하세요.
+
+```powershell
+[Environment]::SetEnvironmentVariable("CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE", $null, "User")
+```
 
 ## 빌드
 
@@ -87,6 +93,7 @@ Build-CodexWoA.bat -SourceMode StoreMsix -Force
 - `better-sqlite3`, `node-pty`, plugin `classic-level` 같은 in-process 네이티브 모듈을 ARM64로 rebuild합니다.
 - 로컬 자체 서명 패키지에서는 native Windows updater를 비활성화합니다.
 - upstream ARM64 asset이 있는 helper 실행 파일을 ARM64 버전으로 교체합니다.
+- Codex가 Windows sandbox setup helper를 MSIX 패키지 외부로 복사한 뒤 UAC installer detection이 발생하지 않도록 명시적인 `asInvoker` manifest를 삽입합니다.
 - `app\resources\codex` 및 `app\resources\codex-resources\bwrap`에 ARM64 WSL Codex runtime source를 추가하고 검증합니다.
 - ARM64 대체가 불가능한 별도 out-of-process 도구에만 x64 fallback을 허용합니다.
 

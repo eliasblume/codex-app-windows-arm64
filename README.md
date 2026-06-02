@@ -20,7 +20,7 @@ OpenAI, Codex, and ChatGPT are trademarks of OpenAI. All other trademarks are th
 - The official Codex app installed from Microsoft Store as the x64 package, or an official x64 Codex MSIX downloaded from Microsoft Store CDN.
 - PowerShell 7 (`pwsh`) is recommended. Windows PowerShell is used only as a fallback.
 - Node.js with `node` and `pnpm` available on `PATH`.
-- Windows SDK tools, including `makeappx.exe` and `signtool.exe`.
+- Windows SDK tools, including `makeappx.exe`, `signtool.exe`, and `mt.exe`.
 - `tar.exe` available on `PATH` for extracting upstream Linux ARM64 runtime assets.
 - Visual Studio C++ desktop build tools with the ARM64 C++ toolchain.
 - Internet access for downloading Electron, Node.js, Codex helper binaries, ripgrep, and native module build dependencies.
@@ -47,7 +47,13 @@ Download the release zip from the [GitHub Releases](https://github.com/airtaxi/c
 Install.bat
 ```
 
-`Install.bat` runs `Install.ps1`, checks that the MSIX signer matches the included certificate, imports the local certificate into the trusted certificate store when needed, and installs the generated MSIX package.
+Close Codex completely before installing. `Install.bat` runs `Install.ps1`, checks that the MSIX signer matches the included certificate, imports the local certificate into the trusted certificate store when needed, installs the generated MSIX package, and then enables the Windows Computer Use feature flag for the current user.
+
+To remove the repack, uninstall Codex WoA through Windows Settings. The installer intentionally leaves the local certificate trust and Computer Use feature flag in place. To disable the feature flag manually, run:
+
+```powershell
+[Environment]::SetEnvironmentVariable("CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE", $null, "User")
+```
 
 ## Build
 
@@ -87,6 +93,7 @@ The certificate is generated locally when needed and is not committed to the rep
 - Rebuilds in-process native modules such as `better-sqlite3`, `node-pty`, and plugin `classic-level` for ARM64.
 - Disables the native Windows updater for the locally signed package.
 - Replaces ARM64 helper executables when upstream ARM64 assets are available.
+- Embeds an explicit `asInvoker` manifest in the Windows sandbox setup helper to prevent UAC installer detection after Codex copies the helper outside the MSIX package.
 - Adds and validates an ARM64 WSL Codex runtime source at `app\resources\codex` and `app\resources\codex-resources\bwrap`.
 - Allows x64 fallback only for separate out-of-process tools where ARM64 replacement is unavailable.
 
