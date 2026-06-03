@@ -1978,7 +1978,33 @@ function Invoke-NodeGypArm64ElectronRebuild {
         [string]$ElectronVersion
     )
 
-    Push-Location $PackageDir
+    $resolvedPackageDir = (Resolve-Path -LiteralPath $PackageDir).Path
+    $shortRoot = Join-Path $script:ScriptRoot "build\node-gyp"
+    $shortRoot = New-Item -ItemType Directory -Path $shortRoot -Force
+    $shortRoot = (Resolve-Path -LiteralPath $shortRoot.FullName).Path
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($resolvedPackageDir))
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace("-", "").Substring(0, 12).ToLowerInvariant()
+    $shortPackageDir = Join-Path $shortRoot $hash
+
+    if (Test-Path -LiteralPath $shortPackageDir) {
+        $resolvedShortPackageDir = (Resolve-Path -LiteralPath $shortPackageDir).Path
+        if (-not $resolvedShortPackageDir.StartsWith($shortRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean node-gyp build path outside short root: $resolvedShortPackageDir"
+        }
+    }
+
+    Write-Host "Staging native rebuild in short path: $shortPackageDir"
+    Copy-DirectoryRobust $resolvedPackageDir $shortPackageDir
+    Remove-IfExists (Join-Path $shortPackageDir "build")
+
+    Push-Location $shortPackageDir
     try {
         Invoke-Checked "pnpm" @(
             "dlx",
@@ -1992,6 +2018,8 @@ function Invoke-NodeGypArm64ElectronRebuild {
     finally {
         Pop-Location
     }
+
+    Copy-DirectoryRobust (Join-Path $shortPackageDir "build") (Join-Path $resolvedPackageDir "build")
 }
 
 function Get-WlDeviceKitNodeModulesDirs {

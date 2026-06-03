@@ -1,5 +1,6 @@
 dist/
 work/
+build/
 *.cer
 *.pfx
 *.msix
