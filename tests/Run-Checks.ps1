@@ -1,0 +1,86 @@
+#Requires -Version 5.1
+[CmdletBinding()]
+param(
+    [switch]$InstallDependencies
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$moduleRoot = Join-Path $repoRoot ".tools\PowerShellModules"
+$requiredModules = [ordered]@{
+    Pester = "5.6.1"
+    PSScriptAnalyzer = "1.22.0"
+}
+
+if ($InstallDependencies) {
+    New-Item -ItemType Directory -Path $moduleRoot -Force | Out-Null
+    foreach ($entry in $requiredModules.GetEnumerator()) {
+        if (-not (Test-Path -LiteralPath (Join-Path $moduleRoot "$($entry.Key)\$($entry.Value)"))) {
+            Save-Module -Name $entry.Key -RequiredVersion $entry.Value -Path $moduleRoot -Repository PSGallery
+        }
+    }
+}
+
+$env:PSModulePath = "$moduleRoot$([IO.Path]::PathSeparator)$env:PSModulePath"
+foreach ($entry in $requiredModules.GetEnumerator()) {
+    $available = Get-Module -ListAvailable -Name $entry.Key |
+        Where-Object { $_.Version -eq [version]$entry.Value } |
+        Select-Object -First 1
+    if ($null -eq $available) {
+        throw "Required module $($entry.Key) $($entry.Value) is unavailable. Run tests\Run-Checks.ps1 -InstallDependencies."
+    }
+    Import-Module $available.Path -Force
+}
+
+Write-Host "Parsing PowerShell files..."
+$parseErrors = New-Object System.Collections.Generic.List[object]
+Get-ChildItem -LiteralPath $repoRoot -Recurse -File -Include "*.ps1", "*.psm1", "*.psd1" |
+    Where-Object {
+        $_.FullName -notlike "$moduleRoot*" -and
+        $_.FullName -notlike "$(Join-Path $repoRoot 'dist')*" -and
+        $_.FullName -notlike "$(Join-Path $repoRoot 'build')*"
+    } |
+    ForEach-Object {
+        $tokens = $null
+        $errors = $null
+        [Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+        foreach ($error in $errors) {
+            $parseErrors.Add($error)
+        }
+    }
+if ($parseErrors.Count -gt 0) {
+    $parseErrors | Format-List | Out-Host
+    throw "PowerShell parser checks failed."
+}
+
+Write-Host "Running PSScriptAnalyzer..."
+$analysisPaths = @(
+    (Join-Path $repoRoot "Build-CodexWoA.ps1"),
+    (Join-Path $repoRoot "scripts"),
+    (Join-Path $repoRoot "tests")
+)
+$srcPath = Join-Path $repoRoot "src"
+if (Test-Path -LiteralPath $srcPath) {
+    $analysisPaths += $srcPath
+}
+$analysis = @($analysisPaths | ForEach-Object {
+    Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings (Join-Path $repoRoot "PSScriptAnalyzerSettings.psd1")
+})
+if ($analysis.Count -gt 0) {
+    $analysis | Format-Table -AutoSize | Out-Host
+    throw "PSScriptAnalyzer reported $($analysis.Count) issue(s)."
+}
+
+Write-Host "Running Pester..."
+$configuration = New-PesterConfiguration
+$configuration.Run.Path = Join-Path $repoRoot "tests\Unit"
+$configuration.Run.PassThru = $true
+$configuration.Output.Verbosity = "Detailed"
+$result = Invoke-Pester -Configuration $configuration
+if ($result.FailedCount -gt 0) {
+    throw "Pester reported $($result.FailedCount) failing test(s)."
+}
+
+Write-Host "All fast checks passed." -ForegroundColor Green

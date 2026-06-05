@@ -74,6 +74,11 @@ jobs:
       - uses: actions/checkout@v6
         if: steps.previous_run.outputs.continue != 'false'
 
+      - name: Run Fast Checks
+        if: steps.previous_run.outputs.continue != 'false'
+        shell: pwsh
+        run: .\tests\Run-Checks.ps1 -InstallDependencies
+
       - id: store
         name: Resolve Latest Store MSIX
         if: steps.previous_run.outputs.continue != 'false'
