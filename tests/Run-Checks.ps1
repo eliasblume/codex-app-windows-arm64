@@ -92,8 +92,8 @@ $configuration.Run.Path = Join-Path $repoRoot "tests\Unit"
 $configuration.Run.PassThru = $true
 $configuration.Output.Verbosity = "Detailed"
 $result = Invoke-Pester -Configuration $configuration
-if ($result.FailedCount -gt 0) {
-    throw "Pester reported $($result.FailedCount) failing test(s)."
+if ($result.Result -ne "Passed") {
+    throw "Pester did not pass. Result: $($result.Result); failed tests: $($result.FailedCount); failed containers: $($result.FailedContainersCount)."
 }
 
 Write-Host "All fast checks passed." -ForegroundColor Green

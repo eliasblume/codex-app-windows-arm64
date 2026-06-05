@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10">
+  <Identity Name="OpenAI.Codex.WoA" Publisher="CN=Test" Version="1.0.0.0" ProcessorArchitecture="arm64" />
+  <Applications>
+    <Application Id="Codex" Executable="app/Codex.exe" EntryPoint="Windows.FullTrustApplication">
+      <Extensions>
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="codex" />
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>
