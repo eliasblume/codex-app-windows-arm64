@@ -2631,7 +2631,7 @@ if ($signatureAfterTrust.Status -ne "Valid") {
 }
 
 Write-Host "Installing $MsixPath..."
-Add-AppxPackage -Path $MsixPath
+Add-AppxPackage -Path $MsixPath -ForceApplicationShutdown -ForceTargetApplicationShutdown
 [Environment]::SetEnvironmentVariable("CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE", "1", "User")
 Clear-CodexBundledPluginCache
 Write-Host "Done. Restart Codex to enable Computer Use."
