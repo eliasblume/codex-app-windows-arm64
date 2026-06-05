@@ -73,6 +73,19 @@ if ($analysis.Count -gt 0) {
     throw "PSScriptAnalyzer reported $($analysis.Count) issue(s)."
 }
 
+Write-Host "Checking JavaScript tools..."
+$node = Get-Command "node" -ErrorAction SilentlyContinue
+if ($null -eq $node) {
+    throw "Required command not found: node"
+}
+Get-ChildItem -LiteralPath (Join-Path $repoRoot "src") -Recurse -File -Filter "*.js" -ErrorAction SilentlyContinue |
+    ForEach-Object {
+        & $node.Source --check $_.FullName
+        if ($LASTEXITCODE -ne 0) {
+            throw "node --check failed for $($_.FullName)"
+        }
+    }
+
 Write-Host "Running Pester..."
 $configuration = New-PesterConfiguration
 $configuration.Run.Path = Join-Path $repoRoot "tests\Unit"
