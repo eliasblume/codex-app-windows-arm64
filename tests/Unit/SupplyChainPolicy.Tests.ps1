@@ -4,23 +4,24 @@ Describe "Supply-chain policy" {
         $policy = Import-PowerShellDataFile -LiteralPath (Join-Path $repoRoot "src\CodexWoA.Build\Data\SupplyChainPolicy.psd1")
     }
 
-    It "pins every executable release asset with a SHA-256" {
-        foreach ($asset in @(
-                "electron-v42.1.0-win32-arm64.zip",
-                "node-v24.14.0-win-arm64.zip",
-                "codex-aarch64-pc-windows-msvc.exe",
-                "codex-command-runner-aarch64-pc-windows-msvc.exe",
-                "codex-windows-sandbox-setup-aarch64-pc-windows-msvc.exe",
-                "codex-aarch64-unknown-linux-musl.tar.gz",
-                "bwrap-aarch64-unknown-linux-musl.tar.gz",
-                "ripgrep-15.1.0-aarch64-pc-windows-msvc.zip")) {
-            $policy.AssetHashes[$asset] | Should -Match "^[A-F0-9]{64}$"
-        }
+    It "keeps fast-moving release assets provenance-based instead of version-pinned" {
+        $policy.ContainsKey("AssetHashes") | Should -BeFalse
+        $policy.ContainsKey("CodexReleaseTag") | Should -BeFalse
+        $policy.ContainsKey("RipgrepReleaseTag") | Should -BeFalse
+        $policy.ContainsKey("NativePackages") | Should -BeFalse
     }
 
-    It "does not allow mutable release tags for release-bound assets" {
-        $policy.CodexReleaseTag | Should -Not -Be "latest"
-        $policy.RipgrepReleaseTag | Should -Not -Be "latest"
+    It "declares trusted GitHub release sources and asset patterns" {
+        $policy.GitHubReleases.Electron.Owner | Should -Be "electron"
+        $policy.GitHubReleases.Electron.Repo | Should -Be "electron"
+        $policy.GitHubReleases.Codex.Owner | Should -Be "openai"
+        $policy.GitHubReleases.Codex.Repo | Should -Be "codex"
+        $policy.GitHubReleases.Ripgrep.Owner | Should -Be "BurntSushi"
+        $policy.GitHubReleases.Ripgrep.Repo | Should -Be "ripgrep"
+        foreach ($entry in $policy.GitHubReleases.GetEnumerator()) {
+            $entry.Value.AssetNamePattern | Should -Not -BeNullOrEmpty
+            $entry.Value.AllowPrerelease | Should -BeFalse
+        }
     }
 
     It "pins the expected Store source identity" {
@@ -28,5 +29,9 @@ Describe "Supply-chain policy" {
         $policy.StoreSource.ExpectedArchitecture | Should -Be "x64"
         $policy.StoreSource.ExpectedPublisher | Should -Match "^CN="
         $policy.StoreSource.AllowedUrlHosts | Should -Contain "tlu.dl.delivery.mp.microsoft.com"
+    }
+
+    It "declares the Node upstream checksum file" {
+        $policy.Node.ChecksumsFile | Should -Be "SHASUMS256.txt.asc"
     }
 }

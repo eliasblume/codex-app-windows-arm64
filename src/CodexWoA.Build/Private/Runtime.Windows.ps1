@@ -94,8 +94,15 @@ function Install-Arm64ElectronRuntime {
     Write-Step "Replacing Electron runtime with win32-arm64 v$ElectronVersion"
     $zipName = "electron-v$ElectronVersion-win32-arm64.zip"
     $zipPath = Join-Path $CacheDir $zipName
-    $url = "https://github.com/electron/electron/releases/download/v$ElectronVersion/$zipName"
-    Download-VerifiedFile $url $zipPath $zipName | Out-Null
+    $releaseInfo = Get-GitHubReleaseFromPolicy "Electron" "v$ElectronVersion" "Electron runtime"
+    Download-VerifiedGitHubReleaseAsset `
+        -Release $releaseInfo.Release `
+        -Owner $releaseInfo.Owner `
+        -Repo $releaseInfo.Repo `
+        -AssetName $zipName `
+        -Destination $zipPath `
+        -AssetNamePattern $releaseInfo.AssetNamePattern `
+        -Label "electron-runtime" | Out-Null
 
     $runtimeDir = Join-Path $CacheDir "electron-win32-arm64-$ElectronVersion"
     Expand-ZipClean $zipPath $runtimeDir
@@ -131,8 +138,7 @@ function Install-Arm64Node {
     Write-Step "Replacing Node.js with win-arm64 v$NodeVersion"
     $zipName = "node-v$NodeVersion-win-arm64.zip"
     $zipPath = Join-Path $CacheDir $zipName
-    $url = "https://nodejs.org/dist/v$NodeVersion/$zipName"
-    Download-VerifiedFile $url $zipPath $zipName | Out-Null
+    Download-VerifiedNodeReleaseFile $NodeVersion $zipName $zipPath $CacheDir | Out-Null
 
     $nodeDir = Join-Path $CacheDir "node-win-arm64-$NodeVersion"
     Expand-ZipClean $zipPath $nodeDir
@@ -145,40 +151,6 @@ function Install-Arm64Node {
     Add-Replacement "node.exe" "arm64" $zipName
 }
 
-function Get-GitHubRelease {
-    param(
-        [string]$Owner,
-        [string]$Repo,
-        [string]$Tag
-    )
-
-    $headers = @{ Accept = "application/vnd.github+json" }
-    if ($Tag -eq "latest") {
-        return Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/latest" -Headers $headers
-    }
-
-    return Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/tags/$Tag" -Headers $headers
-}
-
-function Download-GitHubReleaseAsset {
-    param(
-        [object]$Release,
-        [string]$AssetName,
-        [string]$Destination
-    )
-
-    $asset = $Release.assets | Where-Object { $_.name -eq $AssetName } | Select-Object -First 1
-    if ($null -eq $asset) {
-        throw "Release asset not found: $AssetName"
-    }
-
-    if (-not (Test-Path -LiteralPath $Destination)) {
-        Download-File $asset.browser_download_url $Destination
-    }
-
-    return $Destination
-}
-
 function Install-Arm64CodexHelpers {
     param(
         [string]$ResourcesDir,
@@ -187,8 +159,8 @@ function Install-Arm64CodexHelpers {
     )
 
     Write-Step "Replacing Codex helper executables from openai/codex"
-    $ReleaseTag = Resolve-PinnedReleaseTag $ReleaseTag (Get-SupplyChainPolicy).CodexReleaseTag "Codex helper"
-    $release = Get-GitHubRelease "openai" "codex" $ReleaseTag
+    $releaseInfo = Get-GitHubReleaseFromPolicy "Codex" $ReleaseTag "Codex helper"
+    $release = $releaseInfo.Release
     $script:Context.Report.versions.codexRelease = $release.tag_name
 
     $mapping = @(
@@ -207,8 +179,14 @@ function Install-Arm64CodexHelpers {
 
         try {
             $downloadPath = Join-Path $CacheDir $item.asset
-            Download-GitHubReleaseAsset $release $item.asset $downloadPath | Out-Null
-            Assert-FileSha256 $downloadPath (Get-SupplyChainAssetHash $item.asset) $item.asset
+            Download-VerifiedGitHubReleaseAsset `
+                -Release $release `
+                -Owner $releaseInfo.Owner `
+                -Repo $releaseInfo.Repo `
+                -AssetName $item.asset `
+                -Destination $downloadPath `
+                -AssetNamePattern $releaseInfo.AssetNamePattern `
+                -Label $item.target | Out-Null
             Copy-Item -LiteralPath $downloadPath -Destination $targetPath -Force
             Add-Replacement $item.target "arm64" $item.asset
         }
@@ -228,13 +206,19 @@ function Install-Arm64Ripgrep {
     )
 
     Write-Step "Replacing rg.exe with ripgrep arm64"
-    $tag = (Get-SupplyChainPolicy).RipgrepReleaseTag
-    $release = Get-GitHubRelease "BurntSushi" "ripgrep" $tag
+    $releaseInfo = Get-GitHubReleaseFromPolicy "Ripgrep" "latest" "ripgrep"
+    $release = $releaseInfo.Release
     $tag = $release.tag_name.TrimStart("v")
     $assetName = "ripgrep-$tag-aarch64-pc-windows-msvc.zip"
     $zipPath = Join-Path $CacheDir $assetName
-    Download-GitHubReleaseAsset $release $assetName $zipPath | Out-Null
-    Assert-FileSha256 $zipPath (Get-SupplyChainAssetHash $assetName) $assetName
+    Download-VerifiedGitHubReleaseAsset `
+        -Release $release `
+        -Owner $releaseInfo.Owner `
+        -Repo $releaseInfo.Repo `
+        -AssetName $assetName `
+        -Destination $zipPath `
+        -AssetNamePattern $releaseInfo.AssetNamePattern `
+        -Label "rg.exe" | Out-Null
 
     $ripgrepDir = Join-Path $CacheDir "ripgrep-arm64-$tag"
     Expand-ZipClean $zipPath $ripgrepDir

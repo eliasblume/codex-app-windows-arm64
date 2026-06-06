@@ -12,6 +12,7 @@ function New-BuildContext {
         publisherSubject = $Options.PublisherSubject
         versions = [ordered]@{}
         replacements = New-Object System.Collections.Generic.List[object]
+        supplyChain = New-Object System.Collections.Generic.List[object]
         warnings = New-Object System.Collections.Generic.List[string]
         validation = [ordered]@{}
         outputs = [ordered]@{}

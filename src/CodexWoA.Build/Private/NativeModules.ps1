@@ -212,24 +212,6 @@ function Assert-NativeBuildMetadataSafe {
     }
 }
 
-function Assert-PolicyNativePackageVersion {
-    param(
-        [string]$PackageDir,
-        [string]$PackageKey,
-        [string]$Label
-    )
-
-    $expected = (Get-SupplyChainPolicy).NativePackages[$PackageKey]
-    if ([string]::IsNullOrWhiteSpace($expected)) {
-        throw "No native package version policy is pinned for $Label."
-    }
-
-    $actual = Get-NpmPackageVersionFromDirectory $PackageDir
-    if ($actual -ne $expected) {
-        throw "$Label version $actual is not pinned in SupplyChainPolicy.psd1. Expected $expected."
-    }
-}
-
 function Get-PinnedNodeGypCommand {
     $toolRoot = Join-Path $script:Context.Paths.RepoRoot "build\node-gyp-toolchain"
     New-Item -ItemType Directory -Path $toolRoot -Force | Out-Null
@@ -438,8 +420,6 @@ function Install-Arm64WlDeviceKitNativeModules {
 
     $nodeHidVersion = Get-NpmPackageVersionFromDirectory $nodeHidDir
     $serialPortBindingsVersion = Get-NpmPackageVersionFromDirectory $serialPortBindingsDir
-    Assert-PolicyNativePackageVersion $nodeHidDir "NodeHid" "node-hid"
-    Assert-PolicyNativePackageVersion $serialPortBindingsDir "SerialPortBindingsCpp" "serialport bindings-cpp"
     Assert-NativeBuildMetadataSafe $nodeHidDir "node-hid"
     Assert-NativeBuildMetadataSafe $serialPortBindingsDir "serialport bindings-cpp"
     $script:Context.Report.versions.nodeHid = $nodeHidVersion

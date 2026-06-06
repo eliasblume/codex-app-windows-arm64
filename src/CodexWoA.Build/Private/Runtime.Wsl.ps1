@@ -22,6 +22,9 @@ function Get-ExtractedSingleFile {
 function Get-Arm64WslCodexPayload {
     param(
         [object]$Release,
+        [string]$Owner,
+        [string]$Repo,
+        [string]$AssetNamePattern,
         [string]$CacheDir
     )
 
@@ -40,8 +43,14 @@ function Get-Arm64WslCodexPayload {
 
         foreach ($item in $assets) {
             $archivePath = Join-Path $payloadCacheDir $item.asset
-            Download-GitHubReleaseAsset $Release $item.asset $archivePath | Out-Null
-            Assert-FileSha256 $archivePath (Get-SupplyChainAssetHash $item.asset) $item.asset
+            Download-VerifiedGitHubReleaseAsset `
+                -Release $Release `
+                -Owner $Owner `
+                -Repo $Repo `
+                -AssetName $item.asset `
+                -Destination $archivePath `
+                -AssetNamePattern $AssetNamePattern `
+                -Label $item.expected | Out-Null
 
             $extractDirName = ($item.asset -replace "[^A-Za-z0-9_.-]", "_") -replace "\.tar\.gz$", ""
             $extractDir = Join-Path $payloadCacheDir $extractDirName
@@ -120,10 +129,15 @@ function Install-Arm64WslCodexRuntime {
     )
 
     Write-Step "Replacing WSL Codex runtime with linux-aarch64 from openai/codex"
-    $ReleaseTag = Resolve-PinnedReleaseTag $ReleaseTag (Get-SupplyChainPolicy).CodexReleaseTag "WSL Codex"
-    $release = Get-GitHubRelease "openai" "codex" $ReleaseTag
+    $releaseInfo = Get-GitHubReleaseFromPolicy "Codex" $ReleaseTag "WSL Codex"
+    $release = $releaseInfo.Release
     $script:Context.Report.versions.codexRelease = $release.tag_name
-    $payload = Get-Arm64WslCodexPayload $release $CacheDir
+    $payload = Get-Arm64WslCodexPayload `
+        -Release $release `
+        -Owner $releaseInfo.Owner `
+        -Repo $releaseInfo.Repo `
+        -AssetNamePattern $releaseInfo.AssetNamePattern `
+        -CacheDir $CacheDir
 
     $packagedSeedDir = Join-Path $PackageRoot $script:Context.Paths.WslPayloadRelativeDir
     Copy-Arm64WslCodexPayload $payload $packagedSeedDir

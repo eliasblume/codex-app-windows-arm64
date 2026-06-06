@@ -31,6 +31,14 @@ Describe "Pinned build tools" {
         "$nativeContent`n$pluginContent" | Should -Match "Assert-NativeBuildMetadataSafe"
     }
 
+    It "does not permanently pin Work Louder native package versions" {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $nativeContent = Get-Content -LiteralPath (Join-Path $repoRoot "src\CodexWoA.Build\Private\NativeModules.ps1") -Raw
+        $nativeContent | Should -Not -Match "Assert-PolicyNativePackageVersion"
+        $nativeContent | Should -Match "Report\.versions\.nodeHid"
+        $nativeContent | Should -Match "Report\.versions\.serialPortBindingsCpp"
+    }
+
     It "passes electron-rebuild modules as one compatible argument" {
         $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
         $nativeContent = Get-Content -LiteralPath (Join-Path $repoRoot "src\CodexWoA.Build\Private\NativeModules.ps1") -Raw
