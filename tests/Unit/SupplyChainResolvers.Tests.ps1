@@ -267,7 +267,7 @@ Describe "Supply-chain resolvers" {
         Set-Content -LiteralPath (Join-Path $cacheDir "node-v1.2.3-SHASUMS256.txt.asc") -Value "$hash  $assetName"
 
         $result = & (Get-Module CodexWoA.Build) {
-            param($AssetName, $Path, $CacheDir)
+            param($AssetName, $Path, $CacheDir, $Hash)
             $script:Context = [pscustomobject]@{
                 SupplyChainPolicy = @{
                     Node = @{
@@ -280,9 +280,50 @@ Describe "Supply-chain resolvers" {
             function Assert-NodeChecksumsSignature {
                 param($ChecksumsPath, $NodePolicy, $CacheDir)
                 $script:signatureInput = $ChecksumsPath
+                return @("$Hash  $AssetName")
             }
             Download-VerifiedNodeReleaseFile "1.2.3" $AssetName $Path $CacheDir
-        } $assetName $assetPath $cacheDir
+        } $assetName $assetPath $cacheDir $hash
+
+        $result | Should -Be $assetPath
+    }
+
+    It "ignores unsigned Node checksum lines outside the GPG-verified cleartext" {
+        $cacheDir = Join-Path $script:testRoot "cache"
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+        $assetName = "node-v1.2.3-win-arm64.zip"
+        $assetPath = Join-Path $cacheDir $assetName
+        Set-Content -LiteralPath $assetPath -Value "trusted node bytes" -NoNewline
+        $trustedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $assetPath).Hash.ToLowerInvariant()
+        $poisonPath = Join-Path $cacheDir "poison.bin"
+        Set-Content -LiteralPath $poisonPath -Value "poisoned node bytes" -NoNewline
+        $poisonHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $poisonPath).Hash.ToLowerInvariant()
+        Set-Content -LiteralPath (Join-Path $cacheDir "node-v1.2.3-SHASUMS256.txt.asc") -Value @(
+            "$poisonHash  $assetName",
+            "-----BEGIN PGP SIGNED MESSAGE-----",
+            "",
+            "$trustedHash  $assetName",
+            "-----BEGIN PGP SIGNATURE-----",
+            "mock-signature"
+        )
+
+        $result = & (Get-Module CodexWoA.Build) {
+            param($AssetName, $Path, $CacheDir, $TrustedHash)
+            $script:Context = [pscustomobject]@{
+                SupplyChainPolicy = @{
+                    Node = @{
+                        ChecksumsFile = "SHASUMS256.txt.asc"
+                        RequireSignedChecksums = $true
+                        ReleaseKeysDirectory = "C:\fake\node-release-keys"
+                    }
+                }
+            }
+            function Assert-NodeChecksumsSignature {
+                param($ChecksumsPath, $NodePolicy, $CacheDir)
+                return @("$TrustedHash  $AssetName")
+            }
+            Download-VerifiedNodeReleaseFile "1.2.3" $AssetName $Path $CacheDir
+        } $assetName $assetPath $cacheDir $trustedHash
 
         $result | Should -Be $assetPath
     }
@@ -309,6 +350,7 @@ Describe "Supply-chain resolvers" {
                 }
                 function Assert-NodeChecksumsSignature {
                     param($ChecksumsPath, $NodePolicy, $CacheDir)
+                    return @("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  $AssetName")
                 }
                 Download-VerifiedNodeReleaseFile "1.2.3" $AssetName $Path $CacheDir
             } $assetName $assetPath $cacheDir
@@ -399,7 +441,7 @@ Describe "Supply-chain resolvers" {
             }
             $script:commands = New-Object System.Collections.Generic.List[object]
             function Get-GpgCommandPath {
-                "C:\Program Files\Git\usr\bin\gpg.exe"
+                "C:\tools\gpg.exe"
             }
             function Invoke-Checked {
                 param($FilePath, $Arguments)
@@ -407,10 +449,14 @@ Describe "Supply-chain resolvers" {
                     FilePath = $FilePath
                     Arguments = @($Arguments)
                 }) | Out-Null
+                $outputIndex = @($Arguments).IndexOf("--output")
+                if ($outputIndex -ge 0) {
+                    Set-Content -LiteralPath $Arguments[$outputIndex + 1] -Value "verified checksums" -NoNewline
+                }
                 return 0
             }
 
-            Assert-NodeChecksumsSignature `
+            $verified = Assert-NodeChecksumsSignature `
                 -ChecksumsPath $ChecksumsPath `
                 -NodePolicy @{ RequireSignedChecksums = $true; ReleaseKeysDirectory = $KeyDir } `
                 -CacheDir $CacheDir
@@ -418,13 +464,16 @@ Describe "Supply-chain resolvers" {
             [pscustomobject]@{
                 Commands = $script:commands.ToArray()
                 Evidence = $script:Context.Report["tools"]["nodeReleaseKeys"]
+                Verified = $verified
             }
         } $keyDir $cacheDir $checksumsPath
 
         $result.Commands.Count | Should -Be 2
         $result.Commands[0].Arguments | Should -Contain "--import"
         $result.Commands[0].Arguments -join " " | Should -Match "test\.asc"
-        $result.Commands[1].Arguments | Should -Contain "--verify"
+        $result.Commands[1].Arguments | Should -Contain "--decrypt"
+        $result.Commands[1].Arguments | Should -Contain "--output"
+        $result.Verified | Should -Contain "verified checksums"
         $result.Evidence | Should -Be (Resolve-Path -LiteralPath $keyDir).Path
     }
 

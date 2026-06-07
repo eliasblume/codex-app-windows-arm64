@@ -410,15 +410,30 @@ function Assert-NodeChecksumsSignature {
     )
 
     if (-not [bool]$NodePolicy.RequireSignedChecksums) {
-        return
+        return @(Get-Content -LiteralPath $ChecksumsPath)
     }
 
     $gpg = Get-GpgCommandPath
     $keyringDir = New-NodeReleaseGpgHome $NodePolicy $CacheDir $gpg
-    Invoke-Checked $gpg @(
-        "--homedir", (ConvertTo-GpgPath $keyringDir $gpg),
-        "--verify", (ConvertTo-GpgPath $ChecksumsPath $gpg)
-    ) | Out-Null
+    $verifiedPath = Join-Path $CacheDir ("node-checksums-verified-" + [guid]::NewGuid().ToString("N") + ".txt")
+    try {
+        Invoke-Checked $gpg @(
+            "--batch",
+            "--yes",
+            "--homedir", (ConvertTo-GpgPath $keyringDir $gpg),
+            "--output", (ConvertTo-GpgPath $verifiedPath $gpg),
+            "--decrypt", (ConvertTo-GpgPath $ChecksumsPath $gpg)
+        ) | Out-Null
+
+        if (-not (Test-Path -LiteralPath $verifiedPath)) {
+            throw "GPG did not emit verified Node checksum cleartext: $ChecksumsPath"
+        }
+
+        return @(Get-Content -LiteralPath $verifiedPath)
+    }
+    finally {
+        Remove-IfExists $verifiedPath
+    }
 }
 
 function Get-NodeReleaseChecksum {
@@ -439,9 +454,9 @@ function Get-NodeReleaseChecksum {
     if (-not (Test-Path -LiteralPath $checksumsPath)) {
         Download-File $url $checksumsPath
     }
-    Assert-NodeChecksumsSignature $checksumsPath $nodePolicy $CacheDir
+    $verifiedChecksums = Assert-NodeChecksumsSignature $checksumsPath $nodePolicy $CacheDir
 
-    $match = Get-Content -LiteralPath $checksumsPath |
+    $match = $verifiedChecksums |
         Where-Object { $_ -match "^\s*(?<hash>[a-fA-F0-9]{64})\s+$([regex]::Escape($AssetName))\s*$" } |
         Select-Object -First 1
     if ($null -eq $match) {
