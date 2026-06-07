@@ -13,6 +13,7 @@ function New-BuildContext {
         versions = [ordered]@{}
         replacements = New-Object System.Collections.Generic.List[object]
         supplyChain = New-Object System.Collections.Generic.List[object]
+        commandEvidence = New-Object System.Collections.Generic.List[object]
         warnings = New-Object System.Collections.Generic.List[string]
         validation = [ordered]@{}
         outputs = [ordered]@{}

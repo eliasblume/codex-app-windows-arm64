@@ -48,18 +48,10 @@ function New-IcoFromPng {
 function Get-RceditPath {
     param([string]$CacheDir)
 
-    $rceditVersion = "v2.0.0"
-    $rceditName = "rcedit-x64.exe"
+    $rceditPolicy = (Get-SupplyChainPolicy).DirectDownloads.Rcedit
+    $rceditName = [string]$rceditPolicy.AssetName
     $rceditPath = Join-Path $CacheDir $rceditName
-    $expectedHash = "3E7801DB1A5EDBEC91B49A24A094AAD776CB4515488EA5A4CA2289C400EADE2A"
-    if (-not (Test-Path -LiteralPath $rceditPath)) {
-        Download-File "https://github.com/electron/rcedit/releases/download/$rceditVersion/$rceditName" $rceditPath
-    }
-
-    $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $rceditPath).Hash
-    if ($actualHash -ne $expectedHash) {
-        throw "rcedit SHA256 mismatch: $actualHash"
-    }
+    Download-VerifiedDirectDownload "Rcedit" $rceditPath "rcedit" | Out-Null
 
     return $rceditPath
 }

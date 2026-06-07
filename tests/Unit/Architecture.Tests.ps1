@@ -21,4 +21,12 @@ Describe "Build module architecture" {
             Out-String
         $content | Should -Not -Match '\$script:(Report|ScriptRoot|DefaultOutputDir|WslPayloadRelativeDir)'
     }
+
+    It "keeps supply-chain logic out of Common.ps1" {
+        $common = Get-Content -LiteralPath (Join-Path $privateRoot "Common.ps1") -Raw
+        $common | Should -Not -Match "Download-VerifiedGitHubReleaseAsset"
+        $common | Should -Not -Match "Get-GitHubReleaseFromPolicy"
+        $common | Should -Not -Match "Download-VerifiedNodeReleaseFile"
+        Test-Path -LiteralPath (Join-Path $privateRoot "SupplyChain.ps1") | Should -BeTrue
+    }
 }

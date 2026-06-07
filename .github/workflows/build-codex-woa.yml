@@ -104,7 +104,8 @@ jobs:
         shell: pwsh
         run: |
           corepack enable
-          corepack prepare pnpm@11.1.3 --activate
+          $tools = Import-PowerShellDataFile -LiteralPath "src\CodexWoA.Build\Data\BuildTools.psd1"
+          corepack prepare "pnpm@$($tools.Pnpm)" --activate
           pnpm --version
 
       - id: download
@@ -120,8 +121,10 @@ jobs:
           New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
           $sourceMsix = Join-Path $sourceDir $env:MSIX_FILE
 
+          $policy = Import-PowerShellDataFile -LiteralPath "src\CodexWoA.Build\Data\SupplyChainPolicy.psd1"
+          $storePolicy = $policy.StoreSource
           $uri = [uri]$env:MSIX_URL
-          if ($uri.Host -ne "tlu.dl.delivery.mp.microsoft.com") {
+          if ($storePolicy.AllowedUrlHosts -notcontains $uri.Host) {
             throw "Unexpected Store MSIX host: $($uri.Host)"
           }
 
@@ -133,10 +136,10 @@ jobs:
           }
 
           $signature = Get-AuthenticodeSignature -LiteralPath $sourceMsix
-          if ($signature.SignerCertificate.Subject -ne "CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B") {
+          if ($signature.SignerCertificate.Subject -ne $storePolicy.ExpectedPublisher) {
             throw "Unexpected source MSIX signer: $($signature.SignerCertificate.Subject)"
           }
-          if ($signature.SignerCertificate.Issuer -notlike "*Microsoft Marketplace CA*") {
+          if ($signature.SignerCertificate.Issuer -notlike "*$($storePolicy.RequiredSignerIssuerContains)*") {
             throw "Unexpected source MSIX signer issuer: $($signature.SignerCertificate.Issuer)"
           }
 

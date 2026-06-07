@@ -21,6 +21,9 @@ OpenAI, Codex, and ChatGPT are trademarks of OpenAI. All other trademarks are th
 - The official Codex app installed from Microsoft Store as the x64 package, or an official x64 Codex MSIX downloaded from Microsoft Store CDN.
 - PowerShell 7 (`pwsh`) is recommended. Windows PowerShell is used only as a fallback.
 - Node.js with `node` and `pnpm` available on `PATH`.
+- Git and GPG for supply-chain verification. Git for Windows satisfies both
+  requirements because the build can use `C:\Program Files\Git\usr\bin\gpg.exe`
+  when `gpg` is not on `PATH`.
 - Windows SDK tools, including `makeappx.exe`, `signtool.exe`, and `mt.exe`.
 - `tar.exe` available on `PATH` for extracting upstream Linux ARM64 runtime assets.
 - Visual Studio C++ desktop build tools with the ARM64 C++ toolchain.
@@ -48,9 +51,15 @@ Download the release zip from the [GitHub Releases](https://github.com/airtaxi/c
 Install.bat
 ```
 
-Close Codex completely before installing. `Install.bat` runs `Install.ps1`, checks that the MSIX signer matches the included certificate, imports the local certificate into the trusted certificate store when needed, installs the generated MSIX package, and then enables the Windows Computer Use feature flag for the current user.
+Close Codex completely before installing. `Install.bat` runs `Install.ps1`, checks that the MSIX signer and manifest match the generated package metadata, verifies the included certificate thumbprint, imports the local certificate into the trusted certificate store when needed, installs the generated MSIX package, and then enables the Windows Computer Use feature flag for the current user.
 
-To remove the repack, uninstall Codex WoA through Windows Settings. The installer intentionally leaves the local certificate trust and Computer Use feature flag in place. To disable the feature flag manually, run:
+To remove the repack, uninstall Codex WoA through Windows Settings. The installer intentionally leaves the local certificate trust and Computer Use feature flag in place. To remove the trusted certificate from an extracted release directory, run:
+
+```powershell
+.\Install.ps1 -RemoveTrustedCertificateOnly
+```
+
+To disable the feature flag manually, run:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE", $null, "User")
@@ -73,6 +82,11 @@ Build-CodexWoA.bat -SourceMode StoreMsix -Force
 `-SourceMode Msix -SourceMsixPath <path>` extracts an official x64 Codex MSIX directly and uses it as the source package.
 
 The default output directory is `dist`.
+
+Node.js release verification requires GPG. During preflight the build checks for
+`git` and `gpg` before downloading Node assets. The Node zip is verified against
+the hash in Node's signed `SHASUMS256.txt.asc`; a build machine without GPG will
+fail before the transform phase.
 
 ### Development
 

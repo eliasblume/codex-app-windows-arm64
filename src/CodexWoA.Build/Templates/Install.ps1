@@ -3,7 +3,7 @@
 param(
     [string]$MsixPath = "",
     [string]$CerPath = "",
-    [string]$ExpectedCerThumbprint = "",
+    [string]$ExpectedCerThumbprint = "__EXPECTED_CER_THUMBPRINT__",
     [switch]$RemoveTrustedCertificateOnly,
     [switch]$TrustCertificateOnly
 )
@@ -23,6 +23,10 @@ elseif ($MyInvocation.MyCommand.Path) {
 else {
     Get-Location
 }
+
+$script:ExpectedPackageIdentity = "__EXPECTED_PACKAGE_IDENTITY__"
+$script:ExpectedPackageArchitecture = "arm64"
+$script:ExpectedPackageVersion = "__EXPECTED_PACKAGE_VERSION__"
 
 if ([string]::IsNullOrWhiteSpace($MsixPath)) {
     $MsixPath = Join-Path $script:ScriptRoot "__MSIX_FILE_NAME__"
@@ -54,6 +58,53 @@ function Assert-MsixSignerMatchesCertificate {
     }
 
     return $signature
+}
+
+function Assert-MsixManifestMatchesExpected {
+    param([string]$Path)
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
+    try {
+        $entry = $archive.Entries | Where-Object { $_.FullName -eq "AppxManifest.xml" } | Select-Object -First 1
+        if ($null -eq $entry) {
+            throw "MSIX does not contain AppxManifest.xml: $Path"
+        }
+
+        $stream = $entry.Open()
+        try {
+            $reader = New-Object System.IO.StreamReader($stream)
+            try {
+                [xml]$manifest = $reader.ReadToEnd()
+            }
+            finally {
+                $reader.Dispose()
+            }
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+
+    $identity = $manifest.Package.Identity
+    if ($identity.Name -ne $script:ExpectedPackageIdentity) {
+        throw "MSIX identity $($identity.Name) does not match expected identity $script:ExpectedPackageIdentity."
+    }
+    if ($identity.ProcessorArchitecture -ne $script:ExpectedPackageArchitecture) {
+        throw "MSIX architecture $($identity.ProcessorArchitecture) does not match expected architecture $script:ExpectedPackageArchitecture."
+    }
+    if ($identity.Version -ne $script:ExpectedPackageVersion) {
+        throw "MSIX version $($identity.Version) does not match expected version $script:ExpectedPackageVersion."
+    }
+
+    return [pscustomobject][ordered]@{
+        Identity = [string]$identity.Name
+        Architecture = [string]$identity.ProcessorArchitecture
+        Version = [string]$identity.Version
+    }
 }
 
 function Test-IsAdministrator {
@@ -241,9 +292,7 @@ if (-not (Test-Path -LiteralPath $CerPath)) {
     throw "Certificate not found: $CerPath"
 }
 $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CerPath)
-if ([string]::IsNullOrWhiteSpace($ExpectedCerThumbprint)) {
-    $ExpectedCerThumbprint = $cert.Thumbprint
-}
+Assert-ExpectedCertificateThumbprint $cert $ExpectedCerThumbprint
 
 if ($TrustCertificateOnly) {
     if (-not (Test-IsAdministrator)) {
@@ -262,6 +311,9 @@ if (-not (Test-Path -LiteralPath $MsixPath)) {
 Write-Host "Checking MSIX signer..."
 $signature = Assert-MsixSignerMatchesCertificate $MsixPath $cert
 
+Write-Host "Checking MSIX manifest..."
+$manifestIdentity = Assert-MsixManifestMatchesExpected $MsixPath
+
 Write-Host "Checking certificate trust..."
 $certificateWasTrusted = Test-CertificateInStore $cert $machineStorePath
 if ((-not $certificateWasTrusted) -and (-not (Test-IsAdministrator))) {
@@ -269,6 +321,12 @@ if ((-not $certificateWasTrusted) -and (-not (Test-IsAdministrator))) {
 }
 
 Ensure-CertificateInStore $cert $machineStorePath $machineStoreLabel
+
+$signature | Out-Null
+$manifestIdentity | Out-Null
+Write-Host "Trusted certificate thumbprint: $ExpectedCerThumbprint"
+Write-Host "Trusted certificate store: $machineStoreLabel"
+Write-Host "Rollback: .\Install.ps1 -RemoveTrustedCertificateOnly"
 
 $signatureAfterTrust = Get-AuthenticodeSignature -LiteralPath $MsixPath
 if ($signatureAfterTrust.Status -ne "Valid") {

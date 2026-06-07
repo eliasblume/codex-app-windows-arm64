@@ -45,4 +45,22 @@ Describe "Pinned build tools" {
         $nativeContent | Should -Match '"better-sqlite3,node-pty"'
         $nativeContent | Should -Not -Match '"better-sqlite3",\s*\r?\n\s*"-w"'
     }
+
+    It "keeps workflow pnpm setup sourced from build tool policy" {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $workflow = Get-Content -LiteralPath (Join-Path $repoRoot ".github\workflows\build-codex-woa.yml") -Raw
+        $workflow | Should -Match "BuildTools\.psd1"
+        $workflow | Should -Match '\$tools\.Pnpm'
+        $workflow | Should -Not -Match "pnpm@\d+\.\d+\.\d+"
+    }
+
+    It "keeps rcedit provenance in supply-chain policy instead of runtime code constants" {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $runtimeContent = Get-Content -LiteralPath (Join-Path $repoRoot "src\CodexWoA.Build\Private\Runtime.Windows.ps1") -Raw
+        $policyContent = Get-Content -LiteralPath (Join-Path $repoRoot "src\CodexWoA.Build\Data\SupplyChainPolicy.psd1") -Raw
+        $runtimeContent | Should -Match 'Download-VerifiedDirectDownload "Rcedit"'
+        $runtimeContent | Should -Not -Match "v2\.0\.0"
+        $runtimeContent | Should -Not -Match "3E7801DB1A5EDBEC91B49A24A094AAD776CB4515488EA5A4CA2289C400EADE2A"
+        $policyContent | Should -Match "3E7801DB1A5EDBEC91B49A24A094AAD776CB4515488EA5A4CA2289C400EADE2A"
+    }
 }

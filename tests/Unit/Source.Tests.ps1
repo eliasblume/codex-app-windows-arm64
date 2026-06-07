@@ -23,6 +23,25 @@ Describe "Source package resolution" {
         { Resolve-CodexStorePackage -Html $html -VersionOverride "30.1" } | Should -Throw
     }
 
+    It "signals when GitHub release comparison cannot use gh" {
+        $result = & (Get-Module CodexWoA.Build) {
+            param($Html)
+            function Get-Command {
+                param([string]$Name)
+                if ($Name -eq "gh") {
+                    return $null
+                }
+
+                Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
+            }
+
+            Resolve-CodexStorePackage -Html $Html -Repo "owner/repo" 3>$null
+        } $html
+
+        $result.latestReleaseTag | Should -Be "0.0.0"
+        $result.latestReleaseWarning | Should -Match "gh"
+    }
+
     It "rejects Store package URLs outside the Microsoft delivery allowlist" {
         $badHtml = @"
 <table>

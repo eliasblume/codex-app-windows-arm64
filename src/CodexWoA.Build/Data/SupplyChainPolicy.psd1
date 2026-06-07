@@ -30,7 +30,20 @@
         }
     }
 
+    DirectDownloads = @{
+        Rcedit = @{
+            Version = "v2.0.0"
+            AssetName = "rcedit-x64.exe"
+            Url = "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe"
+            Sha256 = "3E7801DB1A5EDBEC91B49A24A094AAD776CB4515488EA5A4CA2289C400EADE2A"
+        }
+    }
+
     Node = @{
         ChecksumsFile = "SHASUMS256.txt.asc"
+        RequireSignedChecksums = $true
+        ReleaseKeysRepo = "https://github.com/nodejs/release-keys.git"
+        ReleaseKeysRef = "main"
+        ReleaseKeysGpgDirectory = "gpg"
     }
 }

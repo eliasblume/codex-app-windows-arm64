@@ -113,14 +113,20 @@ function New-InstallScript {
     param(
         [string]$OutputPath,
         [string]$MsixFileName,
-        [string]$CerRelativePath
+        [string]$CerRelativePath,
+        [string]$ExpectedCerThumbprint,
+        [string]$ExpectedPackageIdentity,
+        [string]$ExpectedPackageVersion
     )
 
     $content = Get-Content -LiteralPath (Join-Path $script:Context.Paths.RepoRoot "src\CodexWoA.Build\Templates\Install.ps1") -Raw
 
     $content = $content.
         Replace("__MSIX_FILE_NAME__", $MsixFileName).
-        Replace("__CER_RELATIVE_PATH__", $CerRelativePath)
+        Replace("__CER_RELATIVE_PATH__", $CerRelativePath).
+        Replace("__EXPECTED_CER_THUMBPRINT__", $ExpectedCerThumbprint).
+        Replace("__EXPECTED_PACKAGE_IDENTITY__", $ExpectedPackageIdentity).
+        Replace("__EXPECTED_PACKAGE_VERSION__", $ExpectedPackageVersion)
 
     Set-TextUtf8NoBom $OutputPath $content
 }

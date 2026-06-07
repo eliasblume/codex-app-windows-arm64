@@ -22,7 +22,7 @@ function Invoke-BuildOrchestration {
 
     $resolvedOutputDir = New-Item -ItemType Directory -Path $OutputDir -Force
     $resolvedOutputDir = (Resolve-Path -LiteralPath $resolvedOutputDir.FullName).Path
-    $workDir = New-CleanDirectory (Join-Path $resolvedOutputDir "work")
+    $workDir = New-CleanDirectoryUnderRoot (Join-Path $resolvedOutputDir "work") $resolvedOutputDir
     $cacheDir = New-Item -ItemType Directory -Path (Join-Path $resolvedOutputDir "cache") -Force
     $cacheDir = (Resolve-Path -LiteralPath $cacheDir.FullName).Path
 
@@ -36,6 +36,7 @@ function Invoke-BuildOrchestration {
         mt = $mt
     }
 
+    Assert-SupplyChainBuildPrerequisites
     Ensure-VisualStudioArm64Tools
 
     Write-Step "Phase: Acquire"
@@ -54,7 +55,7 @@ function Invoke-BuildOrchestration {
     Write-Step "Phase: Transform"
     $stageRoot = Join-Path $workDir "stage"
     Write-Step "Preparing staging package"
-    New-CleanDirectory $stageRoot | Out-Null
+    New-CleanDirectoryUnderRoot $stageRoot $workDir | Out-Null
     Copy-DirectoryRobust $sourceRoot $stageRoot
     Remove-SourcePackageMetadata $stageRoot
 
@@ -115,7 +116,7 @@ function Invoke-BuildOrchestration {
 
     Write-Step "Phase: Report"
     $installScriptPath = Join-Path $resolvedOutputDir "Install.ps1"
-    New-InstallScript $installScriptPath $msixFileName "cert\CodexWoA.cer"
+    New-InstallScript $installScriptPath $msixFileName "cert\CodexWoA.cer" $certificate.Thumbprint $PackageIdentity $version
     $installBatchPath = Join-Path $resolvedOutputDir "Install.bat"
     New-InstallBatchScript $installBatchPath
 

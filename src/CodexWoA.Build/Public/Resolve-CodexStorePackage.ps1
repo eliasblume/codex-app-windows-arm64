@@ -17,15 +17,28 @@ function Resolve-CodexStorePackage {
     }
 
     $latestTag = "0.0.0"
+    $latestReleaseWarning = ""
     if (-not [string]::IsNullOrWhiteSpace($Repo)) {
-        try {
-            $resolvedLatestTag = gh release view --repo $Repo --json tagName --jq ".tagName" 2>$null
-            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($resolvedLatestTag)) {
-                $latestTag = $resolvedLatestTag
-            }
+        $gh = Get-Command "gh" -ErrorAction SilentlyContinue
+        if ($null -eq $gh) {
+            $latestReleaseWarning = "GitHub CLI 'gh' was not found; latest release comparison fell back to 0.0.0."
+            Write-Warning $latestReleaseWarning
         }
-        catch {
-            $latestTag = "0.0.0"
+        else {
+            try {
+                $resolvedLatestTag = & $gh.Source release view --repo $Repo --json tagName --jq ".tagName" 2>$null
+                if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($resolvedLatestTag)) {
+                    $latestTag = $resolvedLatestTag
+                }
+                else {
+                    $latestReleaseWarning = "GitHub CLI 'gh' could not resolve the latest release for $Repo; latest release comparison fell back to 0.0.0."
+                    Write-Warning $latestReleaseWarning
+                }
+            }
+            catch {
+                $latestReleaseWarning = "GitHub CLI 'gh' failed while resolving $Repo; latest release comparison fell back to 0.0.0. $($_.Exception.Message)"
+                Write-Warning $latestReleaseWarning
+            }
         }
     }
 
@@ -50,5 +63,6 @@ function Resolve-CodexStorePackage {
         msixSha1 = $storePackage.Sha1
         msixExpire = $storePackage.Expire
         latestReleaseTag = $latestTag
+        latestReleaseWarning = $latestReleaseWarning
     }
 }

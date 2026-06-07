@@ -138,6 +138,32 @@ Describe "Supply-chain resolvers" {
         } | Should -Throw "*not allowed by policy*"
     }
 
+    It "verifies a direct-download policy asset against its pinned hash" {
+        $assetPath = Join-Path $script:testRoot "tool.exe"
+        Set-Content -LiteralPath $assetPath -Value "trusted bytes" -NoNewline
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $assetPath).Hash.ToUpperInvariant()
+
+        $result = & (Get-Module CodexWoA.Build) {
+            param($Path, $Hash)
+            $script:Context = [pscustomobject]@{
+                SupplyChainPolicy = @{
+                    DirectDownloads = @{
+                        Tool = @{
+                            Version = "v1.0.0"
+                            AssetName = "tool.exe"
+                            Url = "https://example.test/tool.exe"
+                            Sha256 = $Hash
+                        }
+                    }
+                }
+            }
+
+            Download-VerifiedDirectDownload "Tool" $Path "tool"
+        } $assetPath $hash
+
+        $result | Should -Be $assetPath
+    }
+
     It "lets optional Codex helper replacement fall back when an asset is missing" {
         $resourcesDir = Join-Path $script:testRoot "resources"
         New-Item -ItemType Directory -Path $resourcesDir -Force | Out-Null
@@ -190,10 +216,148 @@ Describe "Supply-chain resolvers" {
 
         $result = & (Get-Module CodexWoA.Build) {
             param($AssetName, $Path, $CacheDir)
+            $script:Context = [pscustomobject]@{
+                SupplyChainPolicy = @{
+                    Node = @{
+                        ChecksumsFile = "SHASUMS256.txt.asc"
+                        RequireSignedChecksums = $true
+                        ReleaseKeysRepo = "https://example.test/nodejs/release-keys.git"
+                        ReleaseKeysRef = "main"
+                        ReleaseKeysGpgDirectory = "gpg"
+                    }
+                }
+            }
+            function Assert-NodeChecksumsSignature {
+                param($ChecksumsPath, $NodePolicy, $CacheDir)
+                $script:signatureInput = $ChecksumsPath
+            }
             Download-VerifiedNodeReleaseFile "1.2.3" $AssetName $Path $CacheDir
         } $assetName $assetPath $cacheDir
 
         $result | Should -Be $assetPath
+    }
+
+    It "fails closed when a signed Node checksum mismatches" {
+        $cacheDir = Join-Path $script:testRoot "cache"
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+        $assetName = "node-v1.2.3-win-arm64.zip"
+        $assetPath = Join-Path $cacheDir $assetName
+        Set-Content -LiteralPath $assetPath -Value "node bytes" -NoNewline
+        Set-Content -LiteralPath (Join-Path $cacheDir "node-v1.2.3-SHASUMS256.txt.asc") -Value "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  $assetName"
+
+        {
+            & (Get-Module CodexWoA.Build) {
+                param($AssetName, $Path, $CacheDir)
+                $script:Context = [pscustomobject]@{
+                    SupplyChainPolicy = @{
+                        Node = @{
+                            ChecksumsFile = "SHASUMS256.txt.asc"
+                            RequireSignedChecksums = $true
+                            ReleaseKeysRepo = "https://example.test/nodejs/release-keys.git"
+                            ReleaseKeysRef = "main"
+                            ReleaseKeysGpgDirectory = "gpg"
+                        }
+                    }
+                }
+                function Assert-NodeChecksumsSignature {
+                    param($ChecksumsPath, $NodePolicy, $CacheDir)
+                }
+                Download-VerifiedNodeReleaseFile "1.2.3" $AssetName $Path $CacheDir
+            } $assetName $assetPath $cacheDir
+        } | Should -Throw "*SHA-256 mismatch*"
+    }
+
+    It "requires signed Node checksums when policy opts into strict mode" {
+        $cacheDir = Join-Path $script:testRoot "cache"
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+        $assetName = "node-v1.2.3-win-arm64.zip"
+        $assetPath = Join-Path $cacheDir $assetName
+        Set-Content -LiteralPath $assetPath -Value "node bytes" -NoNewline
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $assetPath).Hash.ToLowerInvariant()
+        Set-Content -LiteralPath (Join-Path $cacheDir "node-v1.2.3-SHASUMS256.txt.asc") -Value "$hash  $assetName"
+
+        {
+            & (Get-Module CodexWoA.Build) {
+                param($AssetName, $Path, $CacheDir)
+                $script:Context = [pscustomobject]@{
+                    SupplyChainPolicy = @{
+                        Node = @{
+                            ChecksumsFile = "SHASUMS256.txt.asc"
+                            RequireSignedChecksums = $true
+                            ReleaseKeysRepo = "https://example.test/nodejs/release-keys.git"
+                            ReleaseKeysRef = "main"
+                            ReleaseKeysGpgDirectory = "gpg"
+                        }
+                    }
+                }
+                function Assert-NodeChecksumsSignature {
+                    throw "signature verification failed"
+                }
+                Download-VerifiedNodeReleaseFile "1.2.3" $AssetName $Path $CacheDir
+            } $assetName $assetPath $cacheDir
+        } | Should -Throw "*signature verification failed*"
+    }
+
+    It "converts paths for Git for Windows gpg" {
+        $result = & (Get-Module CodexWoA.Build) {
+            ConvertTo-GpgPath "C:\repo\dist\cache\node-release-keys\gpg" "C:\Program Files\Git\usr\bin\gpg.exe"
+        }
+
+        $result | Should -Be "/c/repo/dist/cache/node-release-keys/gpg"
+    }
+
+    It "checks Node signature verification tools during preflight" {
+        $result = & (Get-Module CodexWoA.Build) {
+            $script:Context = [pscustomobject]@{
+                SupplyChainPolicy = @{
+                    Node = @{
+                        RequireSignedChecksums = $true
+                    }
+                }
+                Report = [ordered]@{
+                    tools = [ordered]@{}
+                }
+            }
+            function Require-CommandPath {
+                param($Name)
+                "C:\tools\$Name.exe"
+            }
+            function Get-GpgCommandPath {
+                "C:\Program Files\Git\usr\bin\gpg.exe"
+            }
+
+            Assert-SupplyChainBuildPrerequisites
+            $script:Context.Report.tools
+        }
+
+        $result.git | Should -Be "C:\tools\git.exe"
+        $result.gpg | Should -Be "C:\Program Files\Git\usr\bin\gpg.exe"
+    }
+
+    It "fails preflight when Node signatures are required but gpg is unavailable" {
+        {
+            & (Get-Module CodexWoA.Build) {
+                $script:Context = [pscustomobject]@{
+                    SupplyChainPolicy = @{
+                        Node = @{
+                            RequireSignedChecksums = $true
+                        }
+                    }
+                    Report = [ordered]@{
+                        tools = [ordered]@{}
+                    }
+                }
+                function Require-CommandPath {
+                    param($Name)
+                    "C:\tools\$Name.exe"
+                }
+                function Get-GpgCommandPath {
+                    throw "Required command not found: gpg"
+                }
+
+                Assert-SupplyChainBuildPrerequisites
+            }
+        } | Should -Throw "*gpg*"
     }
 
     It "fails closed when Node checksums do not mention the asset" {
@@ -207,6 +371,14 @@ Describe "Supply-chain resolvers" {
         {
             & (Get-Module CodexWoA.Build) {
                 param($AssetName, $Path, $CacheDir)
+                $script:Context = [pscustomobject]@{
+                    SupplyChainPolicy = @{
+                        Node = @{
+                            ChecksumsFile = "SHASUMS256.txt.asc"
+                            RequireSignedChecksums = $false
+                        }
+                    }
+                }
                 Download-VerifiedNodeReleaseFile "1.2.3" $AssetName $Path $CacheDir
             } $assetName $assetPath $cacheDir
         } | Should -Throw "*did not contain*"
