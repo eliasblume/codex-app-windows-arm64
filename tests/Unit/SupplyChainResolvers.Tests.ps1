@@ -216,6 +216,50 @@ Describe "Supply-chain resolvers" {
         $result | Should -Be $assetPath
     }
 
+    It "refreshes a stale cached direct-download asset before verifying the policy hash" {
+        $assetPath = Join-Path $script:testRoot "tool.exe"
+        Set-Content -LiteralPath $assetPath -Value "old direct-download bytes" -NoNewline
+        $freshBytes = "new direct-download bytes"
+        $hashPath = Join-Path $script:testRoot "fresh-tool.exe"
+        Set-Content -LiteralPath $hashPath -Value $freshBytes -NoNewline
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $hashPath).Hash.ToUpperInvariant()
+
+        $result = & (Get-Module CodexWoA.Build) {
+            param($Path, $Hash, $FreshBytes)
+            $script:downloadCount = 0
+            $script:Context = [pscustomobject]@{
+                SupplyChainPolicy = @{
+                    DirectDownloads = @{
+                        Tool = @{
+                            Version = "v2.0.0"
+                            AssetName = "tool.exe"
+                            Url = "https://example.test/tool.exe"
+                            Sha256 = $Hash
+                        }
+                    }
+                }
+            }
+
+            function Download-File {
+                param($Url, $Destination)
+                $script:downloadCount++
+                Set-Content -LiteralPath $Destination -Value $FreshBytes -NoNewline
+            }
+
+            $resolved = Download-VerifiedDirectDownload "Tool" $Path "tool"
+
+            [pscustomobject]@{
+                Path = $resolved
+                DownloadCount = $script:downloadCount
+                Content = Get-Content -LiteralPath $Path -Raw
+            }
+        } $assetPath $hash $freshBytes
+
+        $result.Path | Should -Be $assetPath
+        $result.DownloadCount | Should -Be 1
+        $result.Content | Should -Be $freshBytes
+    }
+
     It "lets optional Codex helper replacement fall back when an asset is missing" {
         $resourcesDir = Join-Path $script:testRoot "resources"
         New-Item -ItemType Directory -Path $resourcesDir -Force | Out-Null

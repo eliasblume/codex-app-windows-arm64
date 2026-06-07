@@ -205,7 +205,17 @@ function Download-VerifiedDirectDownload {
         throw "Direct download policy for $PolicyName is missing Url."
     }
 
-    if (-not (Test-Path -LiteralPath $Destination)) {
+    if (Test-Path -LiteralPath $Destination) {
+        try {
+            Assert-FileSha256 $Destination ([string]$downloadPolicy.Sha256) $assetName
+        }
+        catch {
+            Write-Warn "Cached $Label asset $assetName did not match policy hash; refreshing cached download."
+            Remove-IfExists $Destination
+            Download-File ([string]$downloadPolicy.Url) $Destination
+        }
+    }
+    else {
         Download-File ([string]$downloadPolicy.Url) $Destination
     }
 
