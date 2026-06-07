@@ -210,6 +210,9 @@ function Assert-NativeBuildMetadataSafe {
         if ($content -match "(?m)['""]?(actions|rules)['""]?\s*:") {
             throw "$Label contains executable gyp metadata in $($gypFile.FullName). Refusing to execute source-package build actions."
         }
+        if ($content -match "<!@?\(") {
+            throw "$Label contains executable gyp command expansion in $($gypFile.FullName). Refusing to execute source-package build commands."
+        }
     }
 }
 

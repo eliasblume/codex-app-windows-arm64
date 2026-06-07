@@ -36,4 +36,26 @@ Describe "Native module build metadata guards" {
             } $packageDir
         } | Should -Throw "*common.gypi*source-package build actions*"
     }
+
+    It "rejects gyp command expansions before native rebuilds" {
+        $packageDir = Join-Path $script:testRoot "package"
+        New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $packageDir "binding.gyp") -Value @"
+{
+  'targets': [
+    {
+      'target_name': 'native',
+      'sources': [ '<!@(powershell -NoProfile -Command Write-Output unsafe)' ]
+    }
+  ]
+}
+"@
+
+        {
+            & (Get-Module CodexWoA.Build) {
+                param($PackageDir)
+                Assert-NativeBuildMetadataSafe $PackageDir "test-package"
+            } $packageDir
+        } | Should -Throw "*binding.gyp*source-package build commands*"
+    }
 }
