@@ -22,4 +22,11 @@ Describe "Pinned build tools" {
         $nativeContent | Should -Match '"better-sqlite3,node-pty"'
         $nativeContent | Should -Not -Match '"better-sqlite3",\s*\r?\n\s*"-w"'
     }
+
+    It "overrides electron-rebuild transitive node-gyp" {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $nativeContent = Get-Content -LiteralPath (Join-Path $repoRoot "src\CodexWoA.Build\Private\NativeModules.ps1") -Raw
+        $nativeContent | Should -Match '"node-gyp"\s*=\s*\$script:Context\.Tools\.NodeGyp'
+        $nativeContent | Should -Match 'overrides:\r?\n\s+node-gyp:\s+\$\(\$script:Context\.Tools\.NodeGyp\)'
+    }
 }

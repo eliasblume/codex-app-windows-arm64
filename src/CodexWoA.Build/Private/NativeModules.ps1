@@ -417,12 +417,15 @@ function Build-Arm64NativeModules {
             devDependencies = [ordered]@{
                 "electron" = $ElectronVersion
                 "@electron/rebuild" = $script:Context.Tools.ElectronRebuild
+                "node-gyp" = $script:Context.Tools.NodeGyp
             }
         } | ConvertTo-Json -Depth 8
         Set-TextUtf8NoBom (Join-Path $buildDir "package.json") $packageJson
         Set-TextUtf8NoBom (Join-Path $buildDir "pnpm-workspace.yaml") @"
 packages:
   - .
+overrides:
+  node-gyp: $($script:Context.Tools.NodeGyp)
 allowBuilds:
   better-sqlite3: true
   node-pty: true
