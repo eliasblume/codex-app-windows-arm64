@@ -83,6 +83,8 @@ function Invoke-BuildOrchestration {
     Prune-PluginClassicLevelNonArm64WindowsPrebuilds $resourcesDir
     Rebuild-PluginClassicLevelArm64NativeModules $resourcesDir
     Enable-ComputerUseX64Fallback $resourcesDir
+    Install-Arm64CuaNodeSharpPackage $resourcesDir $workDir
+    Install-Arm64CuaNodeCanvasPackage $resourcesDir $workDir
 
     Build-Arm64NativeModules $asarExtractDir $electronVersion $workDir
 

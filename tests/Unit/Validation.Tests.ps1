@@ -55,4 +55,92 @@ Describe "Package validation helpers" {
         $result.Type | Should -Match "^System\.Collections\.Generic\.HashSet"
         $result.ContainsDifferentCase | Should -BeTrue
     }
+
+    It "allows explicitly allowlisted x64 native node payloads" {
+        $result = InModuleScope CodexWoA.Build {
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) "codex-woa-validation-test-$([System.Guid]::NewGuid())"
+            $verifyDir = Join-Path $root "verify"
+
+            try {
+                $script:Context = [pscustomobject]@{
+                    Policy = [pscustomobject]@{
+                        AllowedX64Fallbacks = @("app\resources\native\computer-use-app-icons.node")
+                        RequiredWslPayloads = @(
+                            "app\resources\codex",
+                            "app\resources\codex-resources\bwrap"
+                        )
+                    }
+                    Report = [ordered]@{
+                        validation = [ordered]@{}
+                    }
+                }
+                $script:testVerifyDir = $verifyDir
+
+                Mock Invoke-Checked {
+                    param(
+                        [string]$FilePath,
+                        [string[]]$Arguments,
+                        [int[]]$SuccessExitCodes
+                    )
+
+                    if ($Arguments -contains "unpack") {
+                        $nativeDir = Join-Path $script:testVerifyDir "app\resources\native"
+                        New-Item -ItemType Directory -Path $nativeDir -Force | Out-Null
+                        Set-TextUtf8NoBom (Join-Path $nativeDir "computer-use-app-icons.node") "x64 native fixture"
+
+                        $wslDir = Join-Path $script:testVerifyDir "app\resources\codex-resources"
+                        New-Item -ItemType Directory -Path $wslDir -Force | Out-Null
+                        Set-TextUtf8NoBom (Join-Path $script:testVerifyDir "app\resources\codex") "arm64 codex fixture"
+                        Set-TextUtf8NoBom (Join-Path $wslDir "bwrap") "arm64 bwrap fixture"
+                    }
+                }
+                Mock Test-MsixManifest {
+                    [pscustomobject]@{
+                        Identity = "OpenAI.Codex.WoA"
+                        Architecture = "arm64"
+                        Executable = "app/Codex.exe"
+                        Protocol = "codex"
+                    }
+                }
+                Mock Assert-WindowsSandboxSetupAsInvokerManifest {}
+                Mock Get-PeMachine {
+                    param([string]$Path)
+
+                    if ($Path -like "*computer-use-app-icons.node") {
+                        return "x64"
+                    }
+
+                    return "NotPE"
+                }
+                Mock Get-ElfMachine {
+                    param([string]$Path)
+
+                    if ($Path -like "*\codex" -or $Path -like "*\bwrap") {
+                        return "arm64"
+                    }
+
+                    return "NotELF"
+                }
+                Mock Get-AuthenticodeSignature {
+                    [pscustomobject]@{
+                        SignerCertificate = [pscustomobject]@{
+                            Thumbprint = "ABC123"
+                        }
+                    }
+                }
+                Mock Add-AppxPackage {}
+
+                Test-MsixPackage "fake.msix" $verifyDir "makeappx" "signtool" "mt" "OpenAI.Codex.WoA" "ABC123"
+                [pscustomobject]@{
+                    X64Fallbacks = @($script:Context.Report.validation.x64Fallbacks)
+                }
+            }
+            finally {
+                Remove-IfExists $root
+                Remove-Variable -Name testVerifyDir -Scope Script -ErrorAction SilentlyContinue
+            }
+        }
+
+        $result.X64Fallbacks | Should -Contain "app\resources\native\computer-use-app-icons.node"
+    }
 }

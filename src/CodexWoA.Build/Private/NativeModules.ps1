@@ -233,6 +233,97 @@ function Get-NpmPackageVersionFromDirectory {
     return [string]$package.version
 }
 
+function Install-Arm64CuaNodePlatformPackage {
+    param(
+        [string]$ResourcesDir,
+        [string]$WorkDir,
+        [string]$ScopeName,
+        [string]$X64PackageName,
+        [string]$Arm64PackageName,
+        [string]$ReportName
+    )
+
+    $nodeModulesDir = Join-Path $ResourcesDir "cua_node\bin\node_modules"
+    $scopeDir = Join-Path $nodeModulesDir $ScopeName
+    $x64PackageDir = Join-Path $scopeDir $X64PackageName
+    if (-not (Test-Path -LiteralPath $x64PackageDir)) {
+        return
+    }
+
+    $version = Get-NpmPackageVersionFromDirectory $x64PackageDir
+    $arm64PackageDir = Join-Path $scopeDir $Arm64PackageName
+    $arm64PackageId = "$ScopeName/$Arm64PackageName"
+    if (Test-Path -LiteralPath $arm64PackageDir) {
+        $arm64Version = Get-NpmPackageVersionFromDirectory $arm64PackageDir
+        if ($arm64Version -eq $version) {
+            Remove-Item -LiteralPath $x64PackageDir -Recurse -Force
+            Add-Replacement $ReportName "arm64-present" "removed bundled x64 package; kept $arm64PackageId@$version"
+            return
+        }
+    }
+
+    Require-CommandPath "pnpm" | Out-Null
+
+    $installDir = New-CleanDirectory (Join-Path $WorkDir $Arm64PackageName)
+    Push-Location $installDir
+    try {
+        $dependencies = [ordered]@{}
+        $dependencies[$arm64PackageId] = $version
+        $packageJson = [ordered]@{
+            private = $true
+            dependencies = $dependencies
+        } | ConvertTo-Json -Depth 8
+        Set-TextUtf8NoBom (Join-Path $installDir "package.json") $packageJson
+        Set-TextUtf8NoBom (Join-Path $installDir "pnpm-workspace.yaml") @"
+packages:
+  - .
+"@
+
+        Invoke-Checked "pnpm" @("install", "--ignore-scripts", "--config.node-linker=hoisted")
+    }
+    finally {
+        Pop-Location
+    }
+
+    $sourcePackageDir = Join-Path $installDir (Join-Path "node_modules\$ScopeName" $Arm64PackageName)
+    if (-not (Test-Path -LiteralPath $sourcePackageDir)) {
+        throw "ARM64 package was not installed: $arm64PackageId@$version"
+    }
+
+    $peFiles = @(Get-ChildItem -LiteralPath $sourcePackageDir -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension.ToLowerInvariant() -in @(".dll", ".node") })
+    foreach ($file in $peFiles) {
+        $machine = Get-PeMachine $file.FullName
+        if ($machine -ne "arm64") {
+            throw "ARM64 package contained a non-ARM64 binary: $($file.FullName) is $machine"
+        }
+    }
+
+    Remove-IfExists $arm64PackageDir
+    Copy-DirectoryRobust $sourcePackageDir $arm64PackageDir
+    Remove-Item -LiteralPath $x64PackageDir -Recurse -Force
+
+    Add-Replacement $ReportName "arm64" "replaced $ScopeName/$X64PackageName with $arm64PackageId@$version"
+}
+
+function Install-Arm64CuaNodeSharpPackage {
+    param(
+        [string]$ResourcesDir,
+        [string]$WorkDir
+    )
+
+    Install-Arm64CuaNodePlatformPackage $ResourcesDir $WorkDir "@img" "sharp-win32-x64" "sharp-win32-arm64" "@img/sharp-win32"
+}
+
+function Install-Arm64CuaNodeCanvasPackage {
+    param(
+        [string]$ResourcesDir,
+        [string]$WorkDir
+    )
+
+    Install-Arm64CuaNodePlatformPackage $ResourcesDir $WorkDir "@napi-rs" "canvas-win32-x64-msvc" "canvas-win32-arm64-msvc" "@napi-rs/canvas-win32-msvc"
+}
+
 function Invoke-NodeGypArm64ElectronRebuild {
     param(
         [string]$PackageDir,

@@ -155,6 +155,11 @@ function Test-MsixPackage {
             continue
         }
 
+        if ($machine -eq "x64" -and $fallbackX64.Contains($relative)) {
+            $fallbacks.Add($relative)
+            continue
+        }
+
         $mustBeArm64 = $false
         if ($relative -match "^app\\resources\\app\.asar\.unpacked\\node_modules\\(better-sqlite3|node-pty)\\") {
             $mustBeArm64 = $true

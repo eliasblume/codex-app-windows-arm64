@@ -13,4 +13,8 @@ Describe "Compatibility policy" {
         $policy.AllowedX64Fallbacks.Count | Should -BeGreaterThan 0
         @($policy.AllowedX64Fallbacks | Sort-Object -Unique).Count | Should -Be $policy.AllowedX64Fallbacks.Count
     }
+
+    It "declares the closed-source Computer Use icon helper fallback" {
+        $policy.AllowedX64Fallbacks | Should -Contain "app\resources\native\computer-use-app-icons.node"
+    }
 }
