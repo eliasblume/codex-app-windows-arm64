@@ -66,6 +66,7 @@ function Invoke-BuildOrchestration {
     Write-Step "Extracting app.asar"
     Extract-AppAsar $resourcesDir $asarExtractDir
     Normalize-PercentEncodedScopedPackageDirs $asarExtractDir "asar-scoped-package-dirs"
+    Patch-OwlFeatureBindingFallback $asarExtractDir
 
     $electronVersion = Read-ElectronVersion $appDir $asarExtractDir
     $nodeVersion = Read-NodeVersion $resourcesDir

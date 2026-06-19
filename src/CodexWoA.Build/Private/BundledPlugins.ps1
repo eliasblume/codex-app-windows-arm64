@@ -60,6 +60,36 @@ function Prune-PluginClassicLevelNonArm64WindowsPrebuilds {
     }
 }
 
+function Remove-ClassicLevelMsvcLtoOptions {
+    param([string]$ClassicLevelDir)
+
+    $projectRoots = @(
+        (Join-Path $ClassicLevelDir "build"),
+        (Join-Path $ClassicLevelDir "deps")
+    ) | Where-Object { Test-Path -LiteralPath $_ }
+
+    $patched = New-Object "System.Collections.Generic.List[string]"
+    foreach ($projectRoot in $projectRoots) {
+        $projects = @(Get-ChildItem -LiteralPath $projectRoot -Recurse -File -Filter "*.vcxproj" -ErrorAction SilentlyContinue)
+        foreach ($project in $projects) {
+            $before = Get-Content -LiteralPath $project.FullName -Raw
+            $after = $before
+            $after = [regex]::Replace($after, "(?i)(^|[\s;>])[-/]flto=(thin|full)(?=($|[\s;<]))", '$1')
+            $after = [regex]::Replace($after, "(?i)(^|[\s;>])[-/]opt:lldltojobs=[^\s;<]+(?=($|[\s;<]))", '$1')
+            $after = [regex]::Replace($after, " {2,}", " ")
+
+            if ($after -ne $before) {
+                Set-TextUtf8NoBom $project.FullName $after
+                $patched.Add((Get-RelativePath $ClassicLevelDir $project.FullName)) | Out-Null
+            }
+        }
+    }
+
+    if ($patched.Count -gt 0) {
+        Add-Replacement "classic-level-msvc-lto-flags" "removed" ($patched -join ", ")
+    }
+}
+
 function Rebuild-PluginClassicLevelArm64NativeModules {
     param([string]$ResourcesDir)
 
@@ -74,7 +104,16 @@ function Rebuild-PluginClassicLevelArm64NativeModules {
             Invoke-Checked "pnpm" @(
                 "dlx",
                 "node-gyp@$($script:Context.Tools.NodeGyp)",
-                "rebuild",
+                "configure",
+                "--arch=arm64"
+            )
+
+            Remove-ClassicLevelMsvcLtoOptions $classicLevelDir.FullName
+
+            Invoke-Checked "pnpm" @(
+                "dlx",
+                "node-gyp@$($script:Context.Tools.NodeGyp)",
+                "build",
                 "--arch=arm64"
             )
         }

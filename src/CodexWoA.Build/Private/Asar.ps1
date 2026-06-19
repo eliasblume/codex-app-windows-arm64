@@ -95,3 +95,44 @@ function Repack-AppAsar {
     Remove-IfExists $unpackedPath
     Use-Asar @("pack", $ExtractedDir, $asarPath, "--unpack", "{*.node,*.dll,*.exe,codex,bwrap}")
 }
+
+function Patch-OwlFeatureBindingFallback {
+    param([string]$AsarExtractDir)
+
+    $bindingName = "electron_common_owl_features"
+    $fallbackMarker = "isOwlFeatureEnabled:()=>!1"
+    $pattern = 'function\s+(?<fn>[A-Za-z_$][A-Za-z0-9_$]*)\(\)\{let\s+(?<binding>[A-Za-z_$][A-Za-z0-9_$]*)=process\._linkedBinding;if\(typeof\s+\k<binding>!=`function`\)throw Error\(`Owl feature binding is unavailable`\);return\s+(?<schema>[A-Za-z_$][A-Za-z0-9_$]*)\.parse\(\k<binding>\.call\(process,`electron_common_owl_features`\)\)\}'
+    $changed = New-Object "System.Collections.Generic.List[string]"
+
+    $javascriptFiles = @(Get-ChildItem -LiteralPath $AsarExtractDir -Recurse -File -Filter "*.js" -ErrorAction Stop)
+    foreach ($file in $javascriptFiles) {
+        $content = Get-Content -LiteralPath $file.FullName -Raw
+        if (-not $content.Contains($bindingName)) {
+            continue
+        }
+        if ($content.Contains($fallbackMarker)) {
+            continue
+        }
+
+        $matches = [regex]::Matches($content, $pattern)
+        if ($matches.Count -eq 0) {
+            throw "Found $bindingName in $($file.FullName), but the Owl feature binding bootstrap shape was not recognized."
+        }
+
+        $patched = [regex]::Replace($content, $pattern, {
+            param($match)
+
+            $fn = $match.Groups["fn"].Value
+            $binding = $match.Groups["binding"].Value
+            $schema = $match.Groups["schema"].Value
+            return "function $fn(){let $binding=process._linkedBinding;if(typeof $binding!=``function``)return{isOwlFeatureEnabled:()=>!1};try{return $schema.parse($binding.call(process,``electron_common_owl_features``))}catch{return{isOwlFeatureEnabled:()=>!1}}}"
+        })
+
+        Set-TextUtf8NoBom $file.FullName $patched
+        $changed.Add((Get-RelativePath $AsarExtractDir $file.FullName)) | Out-Null
+    }
+
+    if ($changed.Count -gt 0) {
+        Add-Replacement "owl-feature-binding-fallback" "patched" ($changed -join ", ")
+    }
+}
